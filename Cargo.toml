@@ -1,0 +1,27 @@
+[package]
+name = "OtaFlux"
+version = "0.1.0"
+authors = ["Etienne Tremel <995474+etiennetremel@users.noreply.github.com>"]
+edition = "2021"
+license = "MIT"
+description = "An OTA (Over-the-Air) firmware update server that fetches, caches, and serves firmware binaries from OCI-compatible container registry."
+homepage = "https://github.com/etiennetremel/otaflux"
+repository = "https://github.com/etiennetremel/otaflux"
+
+[dependencies]
+zstd = "0.13.3"
+flate2 = "1.1.1"
+tar = "0.4"
+parking_lot = "0.12"
+tokio = { version = "1.44.0", features = ["full"] }
+crc32fast = "1.4.2"
+bytes = "1.10.1"
+axum = { version = "0.7", features = ["json", "macros"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower-http = { version = "0.5", features = ["trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+semver = "1.0.26"
+tracing = "0.1.37"
+reqwest = { version = "0.12.15", features = ["json", "native-tls-vendored"] }
+anyhow = "1.0.75"
