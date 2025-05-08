@@ -3,28 +3,6 @@
 version = 4
 
 [[package]]
-name = "OtaFlux"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "bytes",
- "crc32fast",
- "flate2",
- "parking_lot",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "tar",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "zstd",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -905,6 +883,28 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "otaflux"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bytes",
+ "crc32fast",
+ "flate2",
+ "parking_lot",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "tar",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "zstd",
 ]
 
 [[package]]

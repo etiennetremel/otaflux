@@ -1,5 +1,5 @@
 [package]
-name = "OtaFlux"
+name = "otaflux"
 version = "0.1.0"
 authors = ["Etienne Tremel <995474+etiennetremel@users.noreply.github.com>"]
 edition = "2021"
