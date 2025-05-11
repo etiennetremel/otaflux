@@ -1,20 +1,21 @@
 mod api;
 mod config;
 mod firmware;
+mod metrics;
 mod registry;
 
-use anyhow::Result;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::api::router::create_router;
+use crate::api::router::api_router;
 use crate::config::AppConfig;
 use crate::firmware::manager::FirmwareManager;
+use crate::metrics::router::metrics_router;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     // Initialize logging
     tracing_subscriber::registry()
         .with(LevelFilter::INFO)
@@ -22,7 +23,7 @@ async fn main() -> Result<()> {
         .init();
 
     // Load configuration
-    let config = AppConfig::from_env()?;
+    let config = AppConfig::from_env().unwrap();
     info!("Configuration loaded");
 
     // Create firmware manager
@@ -30,11 +31,25 @@ async fn main() -> Result<()> {
 
     info!("Firmware manager created. Server will fetch firmware on demand per device.");
 
-    // Create and start HTTP server
-    let router = create_router(firmware_manager);
-    let listener = TcpListener::bind(&config.listen_addr).await?;
-    info!("OtaFlux listening on {}", config.listen_addr);
+    let (_main_server, _metrics_server) = tokio::join!(
+        start_main_server(&config.listen_addr, firmware_manager),
+        start_metrics_server(&config.metrics_listen_addr)
+    );
+}
 
-    axum::serve(listener, router).await?;
-    Ok(())
+async fn start_main_server(listen_address: &str, firmware_manager: Arc<FirmwareManager>) {
+    let listener = TcpListener::bind(listen_address).await.unwrap();
+    tracing::debug!("OtaFlux listening on {}", listener.local_addr().unwrap());
+    axum::serve(listener, api_router(firmware_manager))
+        .await
+        .unwrap();
+}
+
+async fn start_metrics_server(listen_address: &str) {
+    let listener = TcpListener::bind(listen_address).await.unwrap();
+    tracing::debug!(
+        "metrics server listening on {}",
+        listener.local_addr().unwrap()
+    );
+    axum::serve(listener, metrics_router()).await.unwrap();
 }

@@ -42,11 +42,16 @@ impl FirmwareManager {
     }
 
     pub async fn get_firmware(&self, device_id: &str) -> Option<Arc<FirmwareInfo>> {
+        let labels = [("device_id", device_id.to_string())];
+
         if let Some(info) = self.cache.lock().get(device_id) {
             debug!("Cache hit for {}", device_id);
+            metrics::counter!("firmware_cache_hit_total", &labels).increment(1);
             return Some(Arc::clone(info));
         }
+
         debug!("Cache miss for {}", device_id);
+        metrics::counter!("firmware_cache_miss_total", &labels).increment(1);
 
         match self.update(device_id, false).await {
             Ok(Some(info)) => Some(info),

@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub registry_username: Option<String>,
     pub registry_password: Option<String>,
     pub listen_addr: String,
+    pub metrics_listen_addr: String,
     pub http_client: Client,
 }
 
@@ -20,6 +21,8 @@ impl AppConfig {
         let registry_password = env::var("REGISTRY_PASSWORD").ok();
 
         let listen_addr = env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into());
+        let metrics_listen_addr =
+            env::var("METRICS_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:9090".into());
 
         let http_client = Client::builder()
             .user_agent("otaflux")
@@ -33,6 +36,7 @@ impl AppConfig {
             registry_username,
             registry_password,
             listen_addr,
+            metrics_listen_addr,
             http_client,
         })
     }
