@@ -65,14 +65,17 @@ REGISTRY_URL=https://your-registry.example.com
 REPOSITORY_PREFIX=my-username/
 REGISTRY_USERNAME=youruser
 REGISTRY_PASSWORD=yourpass
-LISTEN_ADDR=0.0.0.0:8080
 ```
 
 ### Container image
 
 ```bash
 podman build -t otaflux .
-podman run -ti --rm --env-file $PWD/config.env -p 8080:8080 otaflux
+podman run -ti --rm \
+    --env-file $PWD/config.env \
+    -p 8080:8080 \
+    -p 9090:9090 \
+    otaflux
 ```
 
 ### Development
