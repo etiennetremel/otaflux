@@ -5,6 +5,14 @@ use axum::{
 };
 use std::time::Instant;
 
+// Middleware to track HTTP request metrics.
+//
+// This middleware records the total number of HTTP requests and the duration of each request.
+// It uses the `metrics` crate to expose these metrics.
+//
+// The following metrics are recorded:
+// - `http_requests_total`: A counter for the total number of HTTP requests, labeled by method, path, and status.
+// - `http_requests_duration_seconds`: A histogram for the duration of HTTP requests, labeled by method, path, and status.
 pub async fn track_metrics(req: Request, next: Next) -> impl IntoResponse {
     let start = Instant::now();
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {

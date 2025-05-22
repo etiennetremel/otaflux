@@ -9,9 +9,7 @@ homepage = "https://github.com/etiennetremel/otaflux"
 repository = "https://github.com/etiennetremel/otaflux"
 
 [dependencies]
-zstd = "0.13.3"
-flate2 = "1.1.1"
-tar = "0.4"
+tokio-util = "0.7.15"
 parking_lot = "0.12"
 tokio = { version = "1.45.0", features = ["full"] }
 crc32fast = "1.4.2"
@@ -25,5 +23,15 @@ metrics-exporter-prometheus = { version = "0.17", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 semver = "1.0.26"
 tracing = "0.1.37"
-reqwest = { version = "0.12.15", features = ["json", "native-tls-vendored"] }
 anyhow = "1.0.75"
+oci-client = { version = "0.15.0", features = ["default"] }
+clap = { version = "4.5", default-features = false, features = [
+  "color",
+  "derive",
+  "error-context",
+  "help",
+  "std",
+  "suggestions",
+  "usage",
+] }
+sigstore = { version = "0.12", features = ["cosign"] }

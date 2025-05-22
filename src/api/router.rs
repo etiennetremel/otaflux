@@ -3,9 +3,10 @@ use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
 use crate::api::endpoints::{firmware_handler, health_handler, version_handler};
-use crate::firmware::manager::FirmwareManager;
+use crate::firmware_manager::FirmwareManager;
 use crate::metrics::middleware::track_metrics;
 
+// Creates the API router with all the necessary routes and middleware.
 pub fn api_router(firmware_manager: Arc<FirmwareManager>) -> Router {
     Router::new()
         .route("/version", get(version_handler))
