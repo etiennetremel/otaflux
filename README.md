@@ -72,6 +72,9 @@ podman run -ti --rm \
         --registry-password "password"
 ```
 
+**Note**: You can also use environment variable to set values of the CLI flag,
+e.g. `REGISTRY_URL`.
+
 ### Development
 
 ```bash
