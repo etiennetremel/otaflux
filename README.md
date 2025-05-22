@@ -84,6 +84,16 @@ cargo run -- \
     --registry-password "password"
 ```
 
+### Deploy to Kubernetes using Helm
+
+The OtaFlux Helm Chart is stored as OCI artifact in GitHub Container Registry.
+You can install it using the command below:
+
+```bash
+helm install otaflux \
+    oci://ghcr.io/etiennetremel/otaflux-helm-chart
+```
+
 ## HTTP API
 
 - `GET /health`: Health check.

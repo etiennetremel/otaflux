@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: release-drafter/release-drafter@v6
         with:
-          config-name: release-drafter.yaml
+          config-name: release-drafter.main.yaml
           commitish: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

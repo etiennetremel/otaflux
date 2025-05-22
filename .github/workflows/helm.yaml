@@ -1,0 +1,56 @@
+name: Helm
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - 'otaflux-helm-chart@v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository == 'etiennetremel/otaflux' && startsWith(github.ref, 'refs/tags/otaflux-helm-chart@v') && github.event_name == 'push' }}
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GHCR_IMAGE: oci://ghcr.io/${{ github.repository }}-helm-chart
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Login to GHCR
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} \
+            | helm registry login ghcr.io \
+              --username ${{ github.repository_owner }} \
+              --password-stdin
+
+      - name: Push Helm chart
+        run: |
+          APP_VERSION="$(gh release view --json tagName --jq .tagName | sed 's/^v//')"
+          VERSION="$(echo "${{ github.ref_name }}" | sed 's/^otaflux-helm-chart@v//')"
+          helm package ${{ github.workspace }}/deploy/ \
+            ${{ env.GHCR_IMAGE }}:${{ github.ref_name }} \
+            --version="${{ github.ref_name }}" \
+            --app-verlion="$APP_VERSION"
+          helm push ${{ env.GHCR_IMAGE }}:${{ github.ref_name }}
+
+  draft-release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.helm.yaml
+          commitish: ${{ github.sha }}
+          latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

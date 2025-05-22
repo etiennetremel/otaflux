@@ -1,0 +1,6 @@
+_extends: otaflux:.github/release-drafter.base.yml
+name-template: otaflux-helm-chart@v$RESOLVED_VERSION
+tag-template: otaflux-helm-chart@v$RESOLVED_VERSION
+tag-prefix: otaflux-helm-chart@
+include-paths:
+  - deploy/

@@ -1,0 +1,6 @@
+_extends: otaflux:.github/release-drafter.base.yml
+include-paths:
+  - src/
+  - Dockerfile
+  - Cargo.toml
+  - Cargo.lock
