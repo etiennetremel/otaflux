@@ -18,23 +18,23 @@ use crate::metrics::router::metrics_router;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Cli {
-    #[clap(long)]
+    #[clap(long, env)]
     pub registry_url: String,
-    #[clap(long, value_parser = normalize_repository_prefix)]
+    #[clap(long, env, value_parser = normalize_repository_prefix)]
     pub repository_prefix: String,
-    #[clap(long)]
+    #[clap(long, env)]
     pub registry_username: String,
-    #[clap(long)]
+    #[clap(long, env)]
     pub registry_password: String,
-    #[clap(long, required(false), default_value_t = false)]
+    #[clap(long, env, required(false), default_value_t = false)]
     pub registry_insecure: bool,
-    #[clap(long, required(false))]
+    #[clap(long, env, required(false))]
     pub cosign_pub_key_path: Option<String>,
-    #[clap(long, default_value = "0.0.0.0:8080")]
+    #[clap(long, env, default_value = "0.0.0.0:8080")]
     pub listen_addr: String,
-    #[arg(long, default_value = "0.0.0.0:9090")]
+    #[clap(long, env, default_value = "0.0.0.0:9090")]
     pub metrics_listen_addr: String,
-    #[clap(long, default_value = "info")]
+    #[clap(long, env, default_value = "info")]
     log_level: LevelFilter,
 }
 

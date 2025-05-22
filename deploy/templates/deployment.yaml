@@ -41,15 +41,6 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/otaflux"]
-          args:
-            - --registry-url=$REGISTRY_URL
-            - --registry-username=$REGISTRY_USERNAME
-            - --registry-password=$REGISTRY_PASSWORD
-            - --repository-prefix={{ .Values.otaflux.repositoryPrefix }}
-            - --log-level={{ .Values.otaflux.logLevel }}
-            {{- if .Values.otaflux.cosignPubKey }}
-            - --cosign-pub-key-path=/etc/otaflux/cosign.pub
-            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ include "otaflux.fullname" . }}
