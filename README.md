@@ -61,11 +61,10 @@ Cosign][sigstore]
 ### Container image
 
 ```bash
-podman build -t otaflux .
 podman run -ti --rm \
     -p 8080:8080 \
     -p 9090:9090 \
-    otaflux \
+    ghcr.io/etiennetremel/otaflux otaflux \
         --log-level "debug" \
         --registry-url "https://your-registry.example.com" \
         --repository-prefix "my-project/" \
@@ -82,6 +81,19 @@ cargo run -- \
     --repository-prefix "my-project/" \
     --registry-username "username" \
     --registry-password "password"
+```
+
+### Deploy to Kubernetes using Helm
+
+The OtaFlux Helm Chart is stored as OCI artifact in GitHub Container Registry.
+You can install it using the command below:
+
+```bash
+# make sure to include the latest helm chart version from the release page
+helm install \
+    otaflux \
+    oci://ghcr.io/etiennetremel/helm-charts/otaflux \
+    --version v0.1.0
 ```
 
 ## HTTP API

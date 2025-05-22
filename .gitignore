@@ -1,2 +1,4 @@
 target/
+charts/
 .DS_Store
+*.tgz

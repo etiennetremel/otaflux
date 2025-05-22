@@ -10,6 +10,10 @@ on:
     branches:
       - 'main'
 
+concurrency:
+  group: ${{ github.head_ref }}/${{ github.ref }}/main
+  cancel-in-progress: true
+
 jobs:
   clippy:
     runs-on: ubuntu-latest
@@ -73,7 +77,7 @@ jobs:
     steps:
       - uses: release-drafter/release-drafter@v6
         with:
-          config-name: release-drafter.yaml
+          config-name: release-drafter.main.yaml
           commitish: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,8 @@
+apiVersion: v2
+name: otaflux
+description: OtaFlux Helm chart for Kubernetes
+type: application
+
+# Automatically set via CI
+version: v0.1.0
+appVersion: v0.1.0
