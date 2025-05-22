@@ -1,4 +1,7 @@
 _extends: otaflux:.github/release-drafter.base.yaml
+name-template: v$RESOLVED_VERSION
+tag-template: v$RESOLVED_VERSION
+tag-prefix: v
 include-paths:
   - src/
   - Dockerfile
