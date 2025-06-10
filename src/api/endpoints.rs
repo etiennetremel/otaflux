@@ -20,20 +20,18 @@ pub async fn version_handler(
     State(manager): State<Arc<FirmwareManager>>,
     Query(DeviceParams { device }): Query<DeviceParams>,
 ) -> impl IntoResponse {
-    if let Some(fw) = manager.get_firmware(&device).await {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+
+    if let Ok(fw) = manager.get_firmware(&device).await {
         let body = format!("{}\n{}\n{}", fw.version, fw.crc, fw.size);
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            HeaderValue::from_static("text/plain; charset=utf-8"),
-        );
-        (StatusCode::OK, headers, body)
+        (StatusCode::OK, headers, Bytes::from(body))
     } else {
-        (
-            StatusCode::NOT_FOUND,
-            HeaderMap::new(),
-            format!("No firmware for device '{}'", device),
-        )
+        let body = format!("No firmware for device '{}'", device);
+        (StatusCode::NOT_FOUND, headers, Bytes::from(body))
     }
 }
 
@@ -45,7 +43,7 @@ pub async fn firmware_handler(
 ) -> impl IntoResponse {
     let mut headers = HeaderMap::new();
 
-    if let Some(fw) = manager.get_firmware(&device).await {
+    if let Ok(fw) = manager.get_firmware(&device).await {
         headers.insert(
             axum::http::header::CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),

@@ -142,10 +142,9 @@ for later auditing.
 Container Registry, etc).
 
 **OtaFlux verifies signatures before serving firmware to a device, so unsigned
-or
-tampered images are automatically rejected.**
+or tampered images are automatically rejected.**
 
-### Workflow workflow with CoSign
+### Workflow with CoSign
 
 First, you will need both the [Cosign CLI][cosign-cli] and [oras CLI][oras].
 
