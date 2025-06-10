@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use semver::Version;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::registry::RegistryClient;
 
@@ -59,41 +59,6 @@ impl FirmwareManager {
         })
     }
 
-    /// Retrieves firmware information for a given device ID.
-    ///
-    /// This method first checks the local cache for the firmware. If not found,
-    /// it attempts to update the firmware from the registry.
-    ///
-    /// # Arguments
-    ///
-    /// * `device_id` - The unique identifier of the device.
-    ///
-    /// # Returns
-    ///
-    /// An `Option` containing an `Arc<FirmwareInfo>` if firmware is found or successfully retrieved,
-    /// otherwise `None`.
-    pub async fn get_firmware(&self, device_id: &str) -> Option<Arc<FirmwareInfo>> {
-        let labels = [("device_id", device_id.to_string())];
-
-        if let Some(info) = self.cache.lock().get(device_id) {
-            debug!("Cache hit for {}", device_id);
-            metrics::counter!("firmware_cache_hit_total", &labels).increment(1);
-            return Some(Arc::clone(info));
-        }
-
-        debug!("Cache miss for {}", device_id);
-        metrics::counter!("firmware_cache_miss_total", &labels).increment(1);
-
-        match self.update(device_id).await {
-            Ok(Some(info)) => Some(info),
-            Ok(None) => self.cache.lock().get(device_id).cloned(),
-            Err(e) => {
-                error!("Failed to update {}: {}", device_id, e);
-                None
-            }
-        }
-    }
-
     /// Fetches the latest semantic version tag for a given device ID from the registry.
     ///
     /// # Arguments
@@ -128,11 +93,11 @@ impl FirmwareManager {
         Ok((latest_tag, latest_version))
     }
 
-    /// Updates the firmware for a given device ID by fetching the latest version from the registry.
+    /// Retrieves the latest firmware for the specified device.
     ///
-    /// This method checks if an update is necessary by comparing the version in the cache
-    /// with the latest version available in the registry. If an update is needed or the
-    /// firmware is not in the cache, it downloads and caches the new firmware.
+    /// This method checks the cache for the latest firmware version for the given device ID.
+    /// If the cached version is outdated or missing, it fetches the latest firmware from the registry,
+    /// updates the cache, and returns the firmware information.
     ///
     /// # Arguments
     ///
@@ -140,43 +105,40 @@ impl FirmwareManager {
     ///
     /// # Returns
     ///
-    /// A `Result` containing an `Option<Arc<FirmwareInfo>>`.
-    /// - `Ok(Some(info))` if the firmware was updated or fetched for the first time.
-    /// - `Ok(None)` if the firmware is already up-to-date or if fetching the latest version failed but a cached version exists.
-    /// - `Err(e)` if an error occurred during the update process (e.g., network issues, parsing errors) and no cached version was available.
-    pub async fn update(&self, device_id: &str) -> Result<Option<Arc<FirmwareInfo>>> {
+    /// A `Result` containing an `Arc<FirmwareInfo>` with the latest firmware data, or an error if retrieval fails.
+    pub async fn get_firmware(&self, device_id: &str) -> Result<Arc<FirmwareInfo>> {
         info!("Updating {}", device_id);
 
-        let (latest_tag, latest_version) = match self.get_latest_version(device_id).await {
-            Ok(v) => v,
-            // If get_latest_version fails, check cache. If it was already in cache, return that,
-            // otherwise, return Ok(None) to signify no update.
-            Err(e) => {
-                warn!("Failed to get latest version for {}: {}", device_id, e);
-                return Ok(self.cache.lock().get(device_id).cloned());
-            }
-        };
+        let prometheus_labels = [("device_id", device_id.to_string())];
 
+        let (latest_tag, latest_version) = self.get_latest_version(device_id).await?;
         info!("Latest version for {} is {}", device_id, latest_version);
 
-        let should_update = self
-            .cache
-            .lock()
-            .get(device_id)
+        // Scope the lock to only check the cache and determine if an update is needed
+        let current_firmware_in_cache = {
+            let cache = self.cache.lock();
+            cache.get(device_id).cloned()
+        };
+
+        let should_update = current_firmware_in_cache
+            .as_ref()
             .map(|info| latest_version > info.version)
-            .unwrap_or(true); // If not in cache, always update
+            .unwrap_or(true);
 
         if !should_update {
             debug!("{} is up-to-date (version {})", device_id, latest_version);
-            return Ok(self.cache.lock().get(device_id).cloned());
+            metrics::counter!("firmware_cache_hit_total", &prometheus_labels).increment(1);
+            return Ok(current_firmware_in_cache.unwrap());
         }
 
+        debug!("Cache miss for {}", device_id);
+        metrics::counter!("firmware_cache_miss_total", &prometheus_labels).increment(1);
+
+        // No lock is held here during the await
         let blob = self.client.fetch_blob(device_id, &latest_tag).await?;
         info!("Downloaded {} bytes", blob.len());
 
-        // --- SIMPLIFICATION: Assuming blob *is* the firmware binary ---
-        let firmware_bytes = blob; // No extraction needed!
-
+        let firmware_bytes = blob;
         let crc = crc32fast::hash(&firmware_bytes);
         let info = Arc::new(FirmwareInfo {
             version: latest_version.clone(),
@@ -185,11 +147,13 @@ impl FirmwareManager {
             binary: firmware_bytes,
         });
 
-        self.cache
-            .lock()
-            .insert(device_id.to_string(), Arc::clone(&info));
-        debug!("Cached {}@{}", device_id, info.version);
+        // Reacquire the lock to update the cache
+        {
+            let mut cache = self.cache.lock();
+            cache.insert(device_id.to_string(), Arc::clone(&info));
+            debug!("Cached {}@{}", device_id, info.version);
+        }
 
-        Ok(Some(info))
+        Ok(info)
     }
 }
