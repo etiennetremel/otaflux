@@ -9,7 +9,7 @@ RUN mkdir src/ && echo "fn main() {}" > src/main.rs && \
 COPY . ./
 RUN cargo build --target x86_64-unknown-linux-musl --release --locked
 
-FROM debian:12-slim AS user
+FROM debian:13-slim AS user
 RUN useradd -u 1000 -U -m -s /bin/false otaflux
 
 FROM scratch
