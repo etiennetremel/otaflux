@@ -34,12 +34,6 @@ struct ImageSection {
     docker_manifest_digest: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct RegistryTagList {
-    pub name: String,
-    pub tags: Vec<String>,
-}
-
 /// Client for interacting with an OCI registry, including Cosign signature verification.
 #[derive(Clone)]
 pub struct RegistryClient {
