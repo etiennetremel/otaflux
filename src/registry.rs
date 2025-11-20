@@ -8,7 +8,7 @@ use oci_client::{
     secrets::RegistryAuth,
     Reference,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use sigstore::cosign::client::Client as CosignClient;
 use sigstore::cosign::CosignCapabilities;
 use std::fs;
