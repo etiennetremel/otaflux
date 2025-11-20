@@ -8,7 +8,7 @@ use oci_client::{
     secrets::RegistryAuth,
     Reference,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use sigstore::cosign::client::Client as CosignClient;
 use sigstore::cosign::CosignCapabilities;
 use std::fs;
@@ -32,12 +32,6 @@ struct ImageSection {
     #[serde(rename = "docker-manifest-digest")]
     #[serde(alias = "Docker-manifest-digest")] // GCR uses different casing
     docker_manifest_digest: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct RegistryTagList {
-    pub name: String,
-    pub tags: Vec<String>,
 }
 
 /// Client for interacting with an OCI registry, including Cosign signature verification.
