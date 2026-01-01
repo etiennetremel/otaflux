@@ -21,7 +21,7 @@ fn setup_metrics_recorder() -> PrometheusHandle {
             Matcher::Full("http_requests_duration_seconds".to_string()),
             EXPONENTIAL_SECONDS,
         )
-        .unwrap()
+        .expect("failed to set histogram buckets for http_requests_duration_seconds")
         .install_recorder()
-        .unwrap()
+        .expect("failed to install Prometheus recorder")
 }

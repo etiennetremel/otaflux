@@ -8,6 +8,13 @@ description = "An OTA (Over-the-Air) firmware update server that fetches, caches
 homepage = "https://github.com/etiennetremel/otaflux"
 repository = "https://github.com/etiennetremel/otaflux"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "otaflux"
+path = "src/main.rs"
+
 [dependencies]
 tokio-util = "0.7.15"
 parking_lot = "0.12"
@@ -25,6 +32,7 @@ semver = "1.0.26"
 tracing = "0.1.37"
 anyhow = "1.0.75"
 oci-client = "0.15.0"
+rumqttc = { version = "0.24.0", features = ["url"] }
 clap = { version = "4.5", default-features = false, features = [
   "color",
   "derive",
@@ -40,3 +48,12 @@ sigstore = { version = "0.12", features = ["cosign"] }
 [dependencies.reqwest]
 version = "0.12"
 features = ["json", "native-tls-vendored"]
+
+[dev-dependencies]
+testcontainers = "0.26.3"
+testcontainers-modules = { version = "0.14.0", features = ["mosquitto"] }
+tokio = { version = "1.45.0", features = ["test-util"] }
+tower = { version = "0.5.2", features = ["util"] }
+wiremock = "0.6"
+sha2 = "0.10"
+http-body-util = "0.1.3"
