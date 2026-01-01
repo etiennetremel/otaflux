@@ -9,6 +9,9 @@ otaflux:
   registryPassword: password
   repositoryPrefix: my-project/
   logLevel: info
+  # registryInsecure: false
+  # listenAddr: 0.0.0.0:8080
+  # metricsListenAddr: 0.0.0.0:9090
   ## Add you Cosign public key here if you want to enable artifact signature verification
   # cosignPubKey: |
   #   -----BEGIN PUBLIC KEY-----
