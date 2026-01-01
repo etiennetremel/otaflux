@@ -56,3 +56,4 @@ tokio = { version = "1.45.0", features = ["test-util"] }
 tower = { version = "0.5.2", features = ["util"] }
 wiremock = "0.6"
 sha2 = "0.10"
+http-body-util = "0.1.3"

@@ -107,22 +107,27 @@ cargo run -- \
 
 ### Testing
 
-Run unit tests:
+Run all tests:
 
 ```bash
 cargo test
 ```
 
-Run end-to-end tests (requires Docker/Podman for testcontainers):
+The test suite includes:
+- **health_test** - Health endpoint
+- **version_test** - Version endpoint and semver tag selection
+- **firmware_test** - Firmware download and caching
+- **webhook_test** - Harbor webhook integration with MQTT (requires Docker/Podman)
+
+Tests use [wiremock](https://wiremock.rs/) to mock the OCI registry and
+[testcontainers](https://testcontainers.com/) to spin up a real Mosquitto MQTT
+broker for webhook tests.
+
+For verbose output when debugging:
 
 ```bash
-cargo test --test webhook_test
+RUST_LOG=debug cargo test -- --nocapture
 ```
-
-The e2e tests use [testcontainers](https://testcontainers.com/) to spin up a
-real Mosquitto MQTT broker and [wiremock](https://wiremock.rs/) to mock the OCI
-registry. This tests the full flow: Harbor webhook → OCI registry fetch → MQTT
-publish.
 
 ### Kubernetes (Helm)
 

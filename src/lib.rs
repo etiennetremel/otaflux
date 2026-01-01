@@ -171,8 +171,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 tokio::spawn(async move {
                     loop {
                         if let Err(e) = eventloop.poll().await {
-                            eprintln!("MQTT event loop error: {e:?}");
-                            break;
+                            error!("MQTT event loop error: {e:?}");
                         }
                     }
                 });

@@ -2606,6 +2606,7 @@ dependencies = [
  "bytes",
  "clap",
  "crc32fast",
+ "http-body-util",
  "metrics",
  "metrics-exporter-prometheus",
  "oci-client",
