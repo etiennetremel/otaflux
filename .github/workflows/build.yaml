@@ -70,15 +70,8 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           cache: false
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
       - name: Run Tests
-        run: cargo nextest run --junit-path junit.xml
-      - name: Publish Test Report
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
-        with:
-          files: junit.xml
+        run: cargo test
 
   build:
     runs-on: ubuntu-latest
