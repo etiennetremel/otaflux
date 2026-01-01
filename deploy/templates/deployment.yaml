@@ -64,16 +64,36 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.otaflux.cosignPubKey }}
+          {{- if or .Values.otaflux.cosignPubKey (and .Values.otaflux.mqtt .Values.otaflux.mqtt.caCert) }}
           volumeMounts:
+            {{- if .Values.otaflux.cosignPubKey }}
             - name: cosign-pub-key
-              mountPath: /etc/otaflux
+              mountPath: /etc/otaflux/cosign.pub
+              subPath: cosign.pub
+              readOnly: true
+            {{- end }}
+            {{- with .Values.otaflux.mqtt }}
+            {{- if .caCert }}
+            - name: mqtt-tls
+              mountPath: /etc/otaflux/mqtt
+              readOnly: true
+            {{- end }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.otaflux.cosignPubKey }}
+      {{- if or .Values.otaflux.cosignPubKey (and .Values.otaflux.mqtt .Values.otaflux.mqtt.caCert) }}
       volumes:
+        {{- if .Values.otaflux.cosignPubKey }}
         - name: cosign-pub-key
           secret:
             secretName: {{ include "otaflux.fullname" . }}-cosign-pub-key
+        {{- end }}
+        {{- with .Values.otaflux.mqtt }}
+        {{- if .caCert }}
+        - name: mqtt-tls
+          secret:
+            secretName: {{ include "otaflux.fullname" $ }}-mqtt-tls
+        {{- end }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

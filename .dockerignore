@@ -1,0 +1,6 @@
+tests/
+docs/
+deploy/
+.github/
+.git/
+target/

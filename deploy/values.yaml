@@ -4,19 +4,46 @@
 
 # OtaFlux configuration
 otaflux:
-  registryUrl: my-registry.example.com:443
-  registryUsername: username
-  registryPassword: password
-  repositoryPrefix: my-project/
   logLevel: info
-  # registryInsecure: false
-  # listenAddr: 0.0.0.0:8080
-  # metricsListenAddr: 0.0.0.0:9090
-  ## Add you Cosign public key here if you want to enable artifact signature verification
+  repositoryPrefix: my-project/
+  # listenAddr: "0.0.0.0:8080"
+  # metricsListenAddr: "0.0.0.0:9090"
+
+  ## OCI Registry configuration
+  registry:
+    url: my-registry.example.com:443
+    username: username
+    password: password
+    # insecure: false
+
+  ## Add your Cosign public key here if you want to enable artifact signature verification
   # cosignPubKey: |
   #   -----BEGIN PUBLIC KEY-----
   #   ...
   #   -----END PUBLIC KEY-----
+
+  ## MQTT configuration for push-based firmware update notifications
+  ## See docs/mqtt.md for more details
+  mqtt:
+    # Enable MQTT notifications (set url to enable)
+    # url: mqtt://mqtt-broker:1883?client_id=otaflux
+    # username: ""
+    # password: ""
+    # Topic prefix for firmware update notifications
+    # topic: firmware/updates
+    ## TLS configuration (all three must be provided to enable TLS)
+    # caCert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+    # clientCert: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+    # clientKey: |
+    #   -----BEGIN RSA PRIVATE KEY-----
+    #   ...
+    #   -----END RSA PRIVATE KEY-----
 
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/

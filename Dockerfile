@@ -1,23 +1,37 @@
 FROM ghcr.io/rust-cross/rust-musl-cross:x86_64-musl AS builder
 WORKDIR /usr/src/app
-# Cache Rust dependencies to speed-up build time
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src/ && echo "fn main() {}" > src/main.rs && \
+RUN \
+    --mount=type=cache,target=/usr/local/cargo/bin,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry/index,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry/cache,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git/db,sharing=locked \
+    mkdir src/ && \
+    echo "fn main() {}" > src/main.rs && \
+    touch src/lib.rs && \
     cargo build --target x86_64-unknown-linux-musl --release --locked && \
     rm -rf src/
-# Build project binary
 COPY . ./
-RUN cargo build --target x86_64-unknown-linux-musl --release --locked
+RUN \
+    --mount=type=cache,target=/usr/local/cargo/bin,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry/index,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/registry/cache,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git/db,sharing=locked \
+    cargo build --target x86_64-unknown-linux-musl --release --locked
 
-FROM debian:12-slim AS user
+FROM debian:12-slim AS deps
+RUN \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y ca-certificates
 RUN useradd -u 1000 -U -m -s /bin/false otaflux
 
 FROM scratch
 COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/otaflux /otaflux
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /ca-certificates.crt
-COPY --from=user /etc/passwd /etc/passwd
-COPY --from=user /etc/group /etc/group
+COPY --from=deps /etc/ssl/certs/ca-certificates.crt /ca-certificates.crt
+COPY --from=deps /etc/passwd /etc/passwd
+COPY --from=deps /etc/group /etc/group
 USER otaflux
 ENV SSL_CERT_FILE=/ca-certificates.crt
-EXPOSE 8080
+EXPOSE 8080 9090
 CMD ["/otaflux"]

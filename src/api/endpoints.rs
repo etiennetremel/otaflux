@@ -30,7 +30,7 @@ pub async fn version_handler(
         let body = format!("{}\n{}\n{}", fw.version, fw.crc, fw.size);
         (StatusCode::OK, headers, Bytes::from(body))
     } else {
-        let body = format!("No firmware for device '{}'", device);
+        let body = format!("No firmware for device '{device}'");
         (StatusCode::NOT_FOUND, headers, Bytes::from(body))
     }
 }
@@ -55,7 +55,7 @@ pub async fn firmware_handler(
             axum::http::header::CONTENT_TYPE,
             HeaderValue::from_static("text/plain; charset=utf-8"),
         );
-        let body = Bytes::from(format!("No firmware for device '{}'", device));
+        let body = Bytes::from(format!("No firmware for device '{device}'"));
         (StatusCode::NOT_FOUND, headers, body)
     }
 }

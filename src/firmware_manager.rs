@@ -42,7 +42,12 @@ impl FirmwareManager {
         prefix: String,
         cosign_pub_key_path: Option<String>,
     ) -> Result<Self, anyhow::Error> {
-        let repository = format!("{}/{}", url, prefix);
+        // Build the registry string, avoiding double slashes when prefix is empty
+        let repository = if prefix.is_empty() {
+            url
+        } else {
+            format!("{url}/{prefix}")
+        };
         let registry_client = RegistryClient::new(
             repository,
             username,
@@ -78,13 +83,10 @@ impl FirmwareManager {
             .max_by_key(|(v, _)| v.clone())
             .map(|(_, t)| t.clone());
 
-        let latest_tag = match latest_tag {
-            Some(t) => t,
-            None => {
-                warn!("No semver tag for {}", device_id);
-                // Return an error to prevent further processing if no valid semver tag found
-                return Err(anyhow!("No semver tag found for {}", device_id));
-            }
+        let latest_tag = if let Some(t) = latest_tag { t } else {
+            warn!("No semver tag for {}", device_id);
+            // Return an error to prevent further processing if no valid semver tag found
+            return Err(anyhow!("No semver tag found for {}", device_id));
         };
 
         let latest_version = Version::parse(&latest_tag)
@@ -122,8 +124,7 @@ impl FirmwareManager {
 
         let should_update = current_firmware_in_cache
             .as_ref()
-            .map(|info| latest_version > info.version)
-            .unwrap_or(true);
+            .is_none_or(|info| latest_version > info.version);
 
         if !should_update {
             debug!("{} is up-to-date (version {})", device_id, latest_version);

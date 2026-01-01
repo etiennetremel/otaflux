@@ -110,7 +110,7 @@ impl RegistryClient {
             .pull_manifest(&artifact_image_ref, &self.auth)
             .await?;
 
-        let artifact_manifest_digest_str = artifact_manifest_digest.to_string();
+        let artifact_manifest_digest_str = artifact_manifest_digest.clone();
 
         if self.cosign_pub_key_path.is_some() {
             debug!("Verifying cosign signature...");
@@ -118,7 +118,7 @@ impl RegistryClient {
             let signature_lookup_digest = artifact_manifest_digest_str
                 .strip_prefix("sha256:")
                 .unwrap_or(&artifact_manifest_digest_str);
-            let signature_tag = format!("sha256-{}.sig", signature_lookup_digest);
+            let signature_tag = format!("sha256-{signature_lookup_digest}.sig");
 
             // 3. Fetch the Cosign signature payload and the base64-encoded signature.
             //    The `cosign_payload_bytes` is the JSON data that was actually signed.
@@ -207,8 +207,7 @@ impl RegistryClient {
                     COSIGN_SIGNATURE_ANNOTATION,
                     signature_image_ref
                 )
-            })?
-            .to_string();
+            })?.clone();
 
         // The layer itself is the signature payload (e.g., Simple Signing JSON)
         let mut signature_payload_bytes = Vec::new();
@@ -303,7 +302,7 @@ impl RegistryClient {
 
         reference_string
             .parse()
-            .with_context(|| format!("Invalid image reference: {}", reference_string))
+            .with_context(|| format!("Invalid image reference: {reference_string}"))
     }
 
     /// Verifies a Cosign signature against a payload using a PEM-encoded public key.
