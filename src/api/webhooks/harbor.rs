@@ -74,7 +74,7 @@ pub async fn harbor_webhook_handler(
                         Ok(payload_bytes) => {
                             if let Some(notifier) = &app.notifier {
                                 match notifier.publish(device_id.clone(), payload_bytes).await {
-                                    Ok(_) => {
+                                    Ok(()) => {
                                         info!("Successfully published firmware notification for device '{}'", device_id);
                                         break;
                                     }
@@ -87,7 +87,10 @@ pub async fn harbor_webhook_handler(
                             }
                         }
                         Err(e) => {
-                            warn!("Failed to serialize firmware payload for device '{}': {:?}", device_id, e);
+                            warn!(
+                                "Failed to serialize firmware payload for device '{}': {:?}",
+                                device_id, e
+                            );
                         }
                     }
                 }

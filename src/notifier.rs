@@ -28,6 +28,10 @@ impl Notifier {
     /// * `password` - MQTT password (can be empty for anonymous)
     /// * `topic` - Base topic prefix for publishing
     /// * `tls_config` - Optional TLS configuration for secure connections
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parsing the MQTT URL fails.
     pub fn new(
         url: String,
         username: String,
@@ -62,6 +66,11 @@ impl Notifier {
         ))
     }
 
+    /// Publishes a payload to the MQTT broker for the given device.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if publishing the MQTT message fails.
     pub async fn publish(&self, device_id: String, payload: Vec<u8>) -> Result<(), anyhow::Error> {
         let topic = format!("{}/{}", self.topic, device_id);
         info!("Publishing payload to topic {:?}: {:?}", topic, payload);

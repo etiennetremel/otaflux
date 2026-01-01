@@ -84,6 +84,16 @@ curl -o firmware.bin 'localhost:8080/firmware?device=my-device'
 
 ## Deployment
 
+### Getting Started
+
+This project uses [mise](https://mise.jdx.dev/) to manage development tools.
+After [installing mise](https://mise.jdx.dev/getting-started.html), run:
+
+```bash
+# Install Rust and other tools defined in mise.toml
+mise install
+```
+
 ### Development
 
 ```bash
@@ -94,6 +104,25 @@ cargo run -- \
     --registry-username "username" \
     --registry-password "password"
 ```
+
+### Testing
+
+Run unit tests:
+
+```bash
+cargo test
+```
+
+Run end-to-end tests (requires Docker/Podman for testcontainers):
+
+```bash
+cargo test --test webhook_test
+```
+
+The e2e tests use [testcontainers](https://testcontainers.com/) to spin up a
+real Mosquitto MQTT broker and [wiremock](https://wiremock.rs/) to mock the OCI
+registry. This tests the full flow: Harbor webhook → OCI registry fetch → MQTT
+publish.
 
 ### Kubernetes (Helm)
 

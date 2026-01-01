@@ -57,11 +57,34 @@ pub struct Cli {
     log_level: LevelFilter,
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn normalize_repository_prefix(val: &str) -> Result<String, String> {
     let trimmed = val.strip_suffix('/').unwrap_or(val);
     Ok(trimmed.to_string())
 }
 
+/// Runs the `OtaFlux` server with the provided CLI configuration.
+///
+/// This function initializes logging, sets up graceful shutdown handling,
+/// creates the firmware manager, and starts both the main API server and
+/// metrics server. It also optionally initializes an MQTT notifier if
+/// configured.
+///
+/// # Arguments
+///
+/// * `cli` - The parsed command-line arguments containing server configuration.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The firmware manager fails to initialize.
+/// - Reading MQTT TLS certificates fails.
+/// - The MQTT notifier fails to initialize.
+/// - Binding to the configured listen addresses fails.
+///
+/// # Panics
+///
+/// Panics if the Ctrl+C signal handler fails to register.
 pub async fn run(cli: Cli) -> Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
@@ -89,7 +112,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         cli.registry_username,
         cli.registry_password,
         cli.registry_insecure,
-        cli.repository_prefix,
+        &cli.repository_prefix,
         cli.cosign_pub_key_path,
     )?);
 

@@ -8,7 +8,7 @@ use oci_client::{
     secrets::RegistryAuth,
     Reference,
 };
-use serde::{Deserialize};
+use serde::Deserialize;
 use sigstore::cosign::client::Client as CosignClient;
 use sigstore::cosign::CosignCapabilities;
 use std::fs;
@@ -52,6 +52,10 @@ impl RegistryClient {
     /// * `password` - Password for registry authentication.
     /// * `insecure` - If true, use HTTP; otherwise, use HTTPS.
     /// * `cosign_pub_key_path` - Optional path to the Cosign public key file for signature verification.
+    ///
+    /// # Errors
+    ///
+    /// This function currently does not return errors, but returns a `Result` for future extensibility.
     pub fn new(
         registry: String,
         username: String,
@@ -80,6 +84,10 @@ impl RegistryClient {
     }
 
     /// Fetches a list of tags for a given repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image reference is invalid or the registry request fails.
     pub async fn fetch_tags(&self, repository: &str) -> Result<Vec<String>> {
         let image_ref = self.image_path(repository, None)?;
         debug!("Fetching tags for image repository: {}", image_ref);
@@ -101,6 +109,14 @@ impl RegistryClient {
     /// 4. Cryptographically verifying the signature against the Cosign payload using the configured public key.
     /// 5. Deserializing the verified Cosign payload and ensuring it references the correct artifact manifest digest.
     /// 6. Fetching the actual artifact blob (first layer of the artifact image).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The image reference is invalid.
+    /// - Fetching the manifest or blob fails.
+    /// - Cosign signature verification fails (when a public key is configured).
+    /// - The signature payload digest does not match the artifact digest.
     pub async fn fetch_blob(&self, repository: &str, tag: &str) -> Result<Vec<u8>> {
         // 1. Fetch the artifact's manifest to get its digest.
         //    This manifest_digest is what Cosign's SimpleSigning payload should refer to.
@@ -133,7 +149,7 @@ impl RegistryClient {
             );
 
             // 4. Cryptographically verify the signature against the Cosign payload.
-            self.verify_cosign_signature(cosign_payload_bytes.clone(), signature_base64)?;
+            self.verify_cosign_signature(&cosign_payload_bytes, &signature_base64)?;
 
             // 5. Deserialize the verified Cosign payload and check its integrity.
             let cosign_payload: CosignSignedPayload = serde_json::from_slice(&cosign_payload_bytes)
@@ -179,14 +195,11 @@ impl RegistryClient {
             .pull_manifest(&signature_image_ref, &self.auth)
             .await?;
 
-        let signature_image_manifest = match manifest {
-            Image(m) => m,
-            _ => {
-                return Err(anyhow!(
-                    "Signature manifest for {} is not an image manifest",
-                    signature_image_ref
-                ))
-            }
+        let OciManifest::Image(signature_image_manifest) = manifest else {
+            return Err(anyhow!(
+                "Signature manifest for {} is not an image manifest",
+                signature_image_ref
+            ));
         };
 
         let signature_payload_layer = signature_image_manifest.layers.first().ok_or_else(|| {
@@ -207,7 +220,8 @@ impl RegistryClient {
                     COSIGN_SIGNATURE_ANNOTATION,
                     signature_image_ref
                 )
-            })?.clone();
+            })?
+            .clone();
 
         // The layer itself is the signature payload (e.g., Simple Signing JSON)
         let mut signature_payload_bytes = Vec::new();
@@ -259,7 +273,7 @@ impl RegistryClient {
 
                 match resolved_manifest {
                     OciManifest::Image(m) => m,
-                    _ => {
+                    OciManifest::ImageIndex(_) => {
                         return Err(anyhow!(
                             "Resolved manifest for {} (from index) is not an ImageManifest",
                             platform_specific_image_ref
@@ -316,8 +330,8 @@ impl RegistryClient {
     /// `sigstore-rs`, you might need to parse the PEM into a `PublicKey` object first.
     fn verify_cosign_signature(
         &self,
-        signed_payload_content: Vec<u8>,
-        signature_base64: String,
+        signed_payload_content: &[u8],
+        signature_base64: &str,
     ) -> Result<()> {
         let pubkey_path_str = self.cosign_pub_key_path.as_ref().ok_or_else(|| {
             anyhow!("Cosign public key path is not configured. Cannot verify signature.")
@@ -330,7 +344,7 @@ impl RegistryClient {
         CosignClient::verify_blob_with_public_key(
             pem_content.trim(),
             signature_base64.trim(),
-            &signed_payload_content,
+            signed_payload_content,
         )
         .map_err(|e| {
             // Log the detailed error from sigstore library for better debugging

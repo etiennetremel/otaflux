@@ -6,6 +6,7 @@ use otaflux::api::router::api_router;
 use otaflux::firmware_manager::FirmwareManager;
 use otaflux::notifier::Notifier;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use testcontainers::runners::AsyncRunner;
@@ -13,19 +14,24 @@ use testcontainers_modules::mosquitto::Mosquitto;
 use tower::ServiceExt;
 use tracing::debug;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate, Respond};
+use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
 
 // Custom responder to log any unmatched request
 struct LoggingResponder;
 
 impl Respond for LoggingResponder {
     fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
-        println!("UNMATCHED REQUEST: {} {}", request.method, request.url.path());
+        println!(
+            "UNMATCHED REQUEST: {} {}",
+            request.method,
+            request.url.path()
+        );
         ResponseTemplate::new(404)
     }
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn test_harbor_webhook_triggers_mqtt_notification() {
     // Enable tracing for debug output
     let _ = tracing_subscriber::fmt()
@@ -56,7 +62,6 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     let firmware_len = firmware_bytes.len();
 
     // Compute the actual SHA256 digest of the firmware bytes - oci-client validates this!
-    use sha2::{Sha256, Digest};
     let mut firmware_hasher = Sha256::new();
     firmware_hasher.update(firmware_bytes);
     let firmware_digest = format!("sha256:{:x}", firmware_hasher.finalize());
@@ -86,7 +91,10 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     let manifest_digest = format!("sha256:{:x}", manifest_hasher.finalize());
 
     debug!("Manifest digest: {}", manifest_digest);
-    debug!("Manifest JSON: {}", String::from_utf8_lossy(&manifest_bytes));
+    debug!(
+        "Manifest JSON: {}",
+        String::from_utf8_lossy(&manifest_bytes)
+    );
 
     Mock::given(method("GET"))
         .and(path("/v2/repo/device-123/manifests/1.0.0"))
@@ -101,7 +109,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
 
     // Mock GET /v2/repo/device-123/blobs/<firmware_digest> (firmware binary)
     Mock::given(method("GET"))
-        .and(path(format!("/v2/repo/device-123/blobs/{}", firmware_digest)))
+        .and(path(format!("/v2/repo/device-123/blobs/{firmware_digest}")))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("Content-Type", "application/octet-stream")
@@ -109,7 +117,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
                 .insert_header("Docker-Content-Digest", firmware_digest.clone())
                 .set_body_bytes(firmware_bytes.to_vec()),
         )
-        .expect(1)  // Expect this to be called exactly once
+        .expect(1) // Expect this to be called exactly once
         .mount(&mock_registry)
         .await;
 
@@ -129,7 +137,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     // 2. Start MQTT broker using testcontainers
     let mosquitto_node = Mosquitto::default().start().await.unwrap();
     let mqtt_port = mosquitto_node.get_host_port_ipv4(1883).await.unwrap();
-    let mqtt_url = format!("mqtt://127.0.0.1:{}?client_id=otaflux-publisher", mqtt_port);
+    let mqtt_url = format!("mqtt://127.0.0.1:{mqtt_port}?client_id=otaflux-publisher");
 
     // 3. Setup a subscriber to verify the message
     let mut mqttoptions = MqttOptions::new("test-subscriber", "127.0.0.1", mqtt_port);
@@ -155,7 +163,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
                     }
                 }
                 Err(e) => {
-                    eprintln!("MQTT eventloop error: {:?}", e);
+                    eprintln!("MQTT eventloop error: {e:?}");
                 }
             }
         }
@@ -168,12 +176,12 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     // Note: oci-client expects registry without protocol - it uses the `insecure` flag to determine http vs https
     let fm = Arc::new(
         FirmwareManager::new(
-            registry_host_port.to_string(),  // just host:port, no http://
+            registry_host_port.to_string(), // just host:port, no http://
             "user".to_string(),
             "pass".to_string(),
-            true,  // insecure (HTTP)
-            "".to_string(),  // no prefix - repo_full_name includes the full path
-            None,  // no cosign verification
+            true, // insecure (HTTP)
+            "",   // no prefix - repo_full_name includes the full path
+            None, // no cosign verification
         )
         .unwrap(),
     );
@@ -181,17 +189,18 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     // 5. Create Notifier (no TLS for test container)
     let (notifier, mut notifier_eventloop) = Notifier::new(
         mqtt_url.clone(),
-        "".to_string(),  // no auth for mosquitto test container
-        "".to_string(),
+        String::new(), // no auth for mosquitto test container
+        String::new(),
         "otaflux".to_string(),
-        None,  // no TLS
-    ).expect("Failed to create Notifier");
+        None, // no TLS
+    )
+    .expect("Failed to create Notifier");
 
     // Spawn a task to drive the notifier's MQTT event loop
     tokio::spawn(async move {
         loop {
             if let Err(e) = notifier_eventloop.poll().await {
-                eprintln!("Notifier eventloop error: {:?}", e);
+                eprintln!("Notifier eventloop error: {e:?}");
                 break;
             }
         }
@@ -205,7 +214,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
     // 7. Send Webhook Request matching Harbor's format
     let payload = serde_json::json!({
         "type": "PUSH_ARTIFACT",
-        "occur_at": 123456789,
+        "occur_at": 123_456_789,
         "operator": "admin",
         "event_data": {
             "resources": [
@@ -216,7 +225,7 @@ async fn test_harbor_webhook_triggers_mqtt_notification() {
                 }
             ],
             "repository": {
-                "date_created": 123456789,
+                "date_created": 123_456_789,
                 "name": "device-123",
                 "namespace": "repo",
                 "repo_full_name": "repo/device-123",

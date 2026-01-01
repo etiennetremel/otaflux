@@ -34,12 +34,16 @@ impl FirmwareManager {
     /// # Returns
     ///
     /// A `Result` containing the new `FirmwareManager` instance or an error if initialization fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `RegistryClient` fails to initialize.
     pub fn new(
         url: String,
         username: String,
         password: String,
         insecure: bool,
-        prefix: String,
+        prefix: &str,
         cosign_pub_key_path: Option<String>,
     ) -> Result<Self, anyhow::Error> {
         // Build the registry string, avoiding double slashes when prefix is empty
@@ -59,7 +63,7 @@ impl FirmwareManager {
         let client = Arc::new(registry_client);
 
         Ok(Self {
-            cache: Mutex::new(Default::default()),
+            cache: Mutex::new(HashMap::default()),
             client,
         })
     }
@@ -83,7 +87,7 @@ impl FirmwareManager {
             .max_by_key(|(v, _)| v.clone())
             .map(|(_, t)| t.clone());
 
-        let latest_tag = if let Some(t) = latest_tag { t } else {
+        let Some(latest_tag) = latest_tag else {
             warn!("No semver tag for {}", device_id);
             // Return an error to prevent further processing if no valid semver tag found
             return Err(anyhow!("No semver tag found for {}", device_id));
@@ -108,6 +112,12 @@ impl FirmwareManager {
     /// # Returns
     ///
     /// A `Result` containing an `Arc<FirmwareInfo>` with the latest firmware data, or an error if retrieval fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No valid semantic version tag is found for the device.
+    /// - Fetching the firmware blob from the registry fails.
     pub async fn get_firmware(&self, device_id: &str) -> Result<Arc<FirmwareInfo>> {
         info!("Updating {}", device_id);
 
@@ -122,14 +132,13 @@ impl FirmwareManager {
             cache.get(device_id).cloned()
         };
 
-        let should_update = current_firmware_in_cache
-            .as_ref()
-            .is_none_or(|info| latest_version > info.version);
-
-        if !should_update {
-            debug!("{} is up-to-date (version {})", device_id, latest_version);
-            metrics::counter!("firmware_cache_hit_total", &prometheus_labels).increment(1);
-            return Ok(current_firmware_in_cache.unwrap());
+        // Return cached firmware if it's up-to-date
+        if let Some(cached_firmware) = current_firmware_in_cache {
+            if latest_version <= cached_firmware.version {
+                debug!("{} is up-to-date (version {})", device_id, latest_version);
+                metrics::counter!("firmware_cache_hit_total", &prometheus_labels).increment(1);
+                return Ok(cached_firmware);
+            }
         }
 
         debug!("Cache miss for {}", device_id);

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
-use otaflux::Cli;
 use otaflux::run;
+use otaflux::Cli;
 
 #[tokio::main]
 async fn main() -> Result<()> {
