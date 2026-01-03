@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::api::router::api_router;
@@ -19,8 +19,11 @@ use crate::metrics::router::metrics_router;
 use crate::notifier::{Notifier, TlsConfig};
 
 const DEFAULT_CACHE_SIZE: usize = 100;
-const MQTT_MAX_CONSECUTIVE_ERRORS: u32 = 10;
-const MQTT_ERROR_BACKOFF_SECS: u64 = 5;
+/// Initial backoff delay for MQTT reconnection attempts (in milliseconds).
+const MQTT_INITIAL_BACKOFF_MS: u64 = 100;
+/// Maximum backoff delay for MQTT reconnection attempts (in milliseconds).
+/// Caps the exponential growth to prevent excessively long waits.
+const MQTT_MAX_BACKOFF_MS: u64 = 30_000;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -180,39 +183,38 @@ pub async fn run(cli: Cli) -> Result<()> {
         ) {
             Ok((n, mut eventloop)) => {
                 notifier = Some(n);
-                // Spawn a background task to drive the MQTT event loop.
-                // The event loop must be continuously polled to maintain the broker connection
-                // and process incoming/outgoing messages.
+                let mqtt_cancel_token = cancel_token.clone();
                 tokio::spawn(async move {
-                    // Track consecutive errors to implement exponential backoff.
-                    // Without backoff, transient broker issues (network blips, broker restarts)
-                    // would cause a tight error loop that floods logs and wastes CPU.
                     let mut consecutive_errors: u32 = 0;
                     loop {
-                        match eventloop.poll().await {
-                            Ok(_) => {
-                                // Successful poll resets the error counter - connection is healthy.
-                                consecutive_errors = 0;
+                        tokio::select! {
+                            () = mqtt_cancel_token.cancelled() => {
+                                info!("MQTT event loop shutting down");
+                                break;
                             }
-                            Err(e) => {
-                                // saturating_add prevents overflow if errors continue indefinitely.
-                                consecutive_errors = consecutive_errors.saturating_add(1);
-                                error!(
-                                    error = ?e,
-                                    consecutive_errors,
-                                    "MQTT event loop error"
-                                );
-                                // After too many consecutive failures, pause before retrying.
-                                // This gives the broker time to recover and prevents log spam.
-                                if consecutive_errors >= MQTT_MAX_CONSECUTIVE_ERRORS {
-                                    warn!(
-                                        backoff_secs = MQTT_ERROR_BACKOFF_SECS,
-                                        "Too many consecutive MQTT errors, backing off"
-                                    );
-                                    tokio::time::sleep(Duration::from_secs(
-                                        MQTT_ERROR_BACKOFF_SECS,
-                                    ))
-                                    .await;
+                            result = eventloop.poll() => {
+                                match result {
+                                    Ok(_) => {
+                                        consecutive_errors = 0;
+                                    }
+                                    Err(e) => {
+                                        consecutive_errors = consecutive_errors.saturating_add(1);
+
+                                        if consecutive_errors == 1 {
+                                            error!(error = ?e, "MQTT connection error");
+                                        } else {
+                                            debug!(
+                                                error = ?e,
+                                                consecutive_errors,
+                                                "MQTT still disconnected"
+                                            );
+                                        }
+
+                                        let backoff_ms = MQTT_INITIAL_BACKOFF_MS
+                                            .saturating_mul(2_u64.saturating_pow(consecutive_errors.saturating_sub(1)))
+                                            .min(MQTT_MAX_BACKOFF_MS);
+                                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                                    }
                                 }
                             }
                         }
