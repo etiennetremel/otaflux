@@ -3,22 +3,22 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
 };
-use bytes::Bytes;
 use serde::Deserialize;
 use std::sync::Arc;
+use tracing::instrument;
 
 use crate::firmware_manager::FirmwareManager;
 
 #[derive(Deserialize)]
 pub struct DeviceParams {
-    device: String,
+    device: Option<String>,
 }
 
-// Handler for the version endpoint.
-// Returns the firmware version, CRC, and size for the specified device.
+/// Returns the firmware version, CRC32, and size for the specified device.
+#[instrument(skip(manager, params))]
 pub async fn version_handler(
     State(manager): State<Arc<FirmwareManager>>,
-    Query(DeviceParams { device }): Query<DeviceParams>,
+    Query(params): Query<DeviceParams>,
 ) -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -26,42 +26,63 @@ pub async fn version_handler(
         HeaderValue::from_static("text/plain; charset=utf-8"),
     );
 
+    let Some(device) = params.device.filter(|d| !d.is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            headers,
+            "Missing required query parameter: 'device'".to_string(),
+        );
+    };
+
     if let Ok(fw) = manager.get_firmware(&device).await {
         let body = format!("{}\n{}\n{}", fw.version, fw.crc, fw.size);
-        (StatusCode::OK, headers, Bytes::from(body))
+        (StatusCode::OK, headers, body)
     } else {
         let body = format!("No firmware for device '{device}'");
-        (StatusCode::NOT_FOUND, headers, Bytes::from(body))
+        (StatusCode::NOT_FOUND, headers, body)
     }
 }
 
-// Handler for the firmware download endpoint.
-// Returns the firmware binary for the specified device.
+/// Returns the firmware binary for the specified device.
+#[instrument(skip(manager, params))]
 pub async fn firmware_handler(
     State(manager): State<Arc<FirmwareManager>>,
-    Query(DeviceParams { device }): Query<DeviceParams>,
+    Query(params): Query<DeviceParams>,
 ) -> impl IntoResponse {
     let mut headers = HeaderMap::new();
+
+    let Some(device) = params.device.filter(|d| !d.is_empty()) else {
+        headers.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+        return (
+            StatusCode::BAD_REQUEST,
+            headers,
+            "Missing required query parameter: 'device'".into(),
+        );
+    };
 
     if let Ok(fw) = manager.get_firmware(&device).await {
         headers.insert(
             axum::http::header::CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),
         );
-        let body = Bytes::from(fw.binary.clone());
-        (StatusCode::OK, headers, body)
+        (StatusCode::OK, headers, fw.binary.clone())
     } else {
         headers.insert(
             axum::http::header::CONTENT_TYPE,
             HeaderValue::from_static("text/plain; charset=utf-8"),
         );
-        let body = Bytes::from(format!("No firmware for device '{device}'"));
-        (StatusCode::NOT_FOUND, headers, body)
+        (
+            StatusCode::NOT_FOUND,
+            headers,
+            format!("No firmware for device '{device}'").into(),
+        )
     }
 }
 
-// Handler for the health check endpoint.
-// Returns a 200 OK status code if the server is healthy.
+/// Returns 200 OK if the server is healthy.
 pub async fn health_handler() -> impl IntoResponse {
     StatusCode::OK
 }

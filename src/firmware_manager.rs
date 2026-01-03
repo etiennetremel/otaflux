@@ -1,26 +1,32 @@
 use anyhow::{anyhow, Result};
+use bytes::Bytes;
+use lru::LruCache;
 use parking_lot::Mutex;
 use semver::Version;
-use std::{collections::HashMap, sync::Arc};
-use tracing::{debug, info, warn};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use tracing::{debug, info, instrument, warn};
 
 use crate::registry::RegistryClient;
 
+/// Default maximum number of firmware entries to cache.
+const DEFAULT_CACHE_SIZE: usize = 100;
+
 #[derive(Clone, Debug)]
 pub struct FirmwareInfo {
-    pub binary: Vec<u8>,
+    pub binary: Bytes,
     pub crc: u32,
     pub version: Version,
     pub size: usize,
 }
 
 pub struct FirmwareManager {
-    cache: Mutex<HashMap<String, Arc<FirmwareInfo>>>,
+    cache: Mutex<LruCache<String, Arc<FirmwareInfo>>>,
     client: Arc<RegistryClient>,
 }
 
 impl FirmwareManager {
-    /// Creates a new instance of `FirmwareManager`.
+    /// Creates a new instance of `FirmwareManager` with default cache size.
     ///
     /// # Arguments
     ///
@@ -46,6 +52,45 @@ impl FirmwareManager {
         prefix: &str,
         cosign_pub_key_path: Option<String>,
     ) -> Result<Self, anyhow::Error> {
+        Self::with_cache_size(
+            url,
+            username,
+            password,
+            insecure,
+            prefix,
+            cosign_pub_key_path,
+            DEFAULT_CACHE_SIZE,
+        )
+    }
+
+    /// Creates a new instance of `FirmwareManager` with a custom cache size.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The base URL of the OCI registry.
+    /// * `username` - The username for registry authentication.
+    /// * `password` - The password for registry authentication.
+    /// * `insecure` - A boolean indicating whether to allow insecure connections to the registry.
+    /// * `prefix` - The repository prefix to use within the registry.
+    /// * `cosign_pub_key_path` - An optional path to a cosign public key for signature verification.
+    /// * `cache_size` - Maximum number of firmware entries to cache.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the new `FirmwareManager` instance or an error if initialization fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `RegistryClient` fails to initialize or `cache_size` is 0.
+    pub fn with_cache_size(
+        url: String,
+        username: String,
+        password: String,
+        insecure: bool,
+        prefix: &str,
+        cosign_pub_key_path: Option<String>,
+        cache_size: usize,
+    ) -> Result<Self, anyhow::Error> {
         // Build the registry string, avoiding double slashes when prefix is empty
         let repository = if prefix.is_empty() {
             url
@@ -62,8 +107,11 @@ impl FirmwareManager {
 
         let client = Arc::new(registry_client);
 
+        let cache_capacity = NonZeroUsize::new(cache_size)
+            .ok_or_else(|| anyhow!("Cache size must be greater than 0"))?;
+
         Ok(Self {
-            cache: Mutex::new(HashMap::default()),
+            cache: Mutex::new(LruCache::new(cache_capacity)),
             client,
         })
     }
@@ -78,6 +126,7 @@ impl FirmwareManager {
     ///
     /// A `Result` containing a tuple of the latest tag string and its parsed `Version`,
     /// or an error if no valid semantic version tag is found or parsing fails.
+    #[instrument(skip(self), fields(device_id = %device_id))]
     async fn get_latest_version(&self, device_id: &str) -> Result<(String, Version)> {
         let tags = self.client.fetch_tags(device_id).await?;
 
@@ -118,41 +167,48 @@ impl FirmwareManager {
     /// Returns an error if:
     /// - No valid semantic version tag is found for the device.
     /// - Fetching the firmware blob from the registry fails.
+    #[instrument(skip(self), fields(device_id = %device_id))]
     pub async fn get_firmware(&self, device_id: &str) -> Result<Arc<FirmwareInfo>> {
-        info!("Updating {}", device_id);
+        debug!("Fetching firmware for device");
 
         let prometheus_labels = [("device_id", device_id.to_string())];
 
         let (latest_tag, latest_version) = self.get_latest_version(device_id).await?;
-        info!("Latest version for {} is {}", device_id, latest_version);
+        info!(version = %latest_version, "Found latest version for device");
 
         // Scope the lock to only check the cache and determine if an update is needed
         let current_firmware_in_cache = {
-            let cache = self.cache.lock();
+            let mut cache = self.cache.lock();
             cache.get(device_id).cloned()
         };
 
         // Return cached firmware if it's up-to-date
         if let Some(cached_firmware) = current_firmware_in_cache {
             if latest_version <= cached_firmware.version {
-                debug!("{} is up-to-date (version {})", device_id, latest_version);
+                debug!(version = %latest_version, "Cache hit - firmware is up-to-date");
                 metrics::counter!("firmware_cache_hit_total", &prometheus_labels).increment(1);
                 return Ok(cached_firmware);
             }
+            debug!(
+                cached_version = %cached_firmware.version,
+                latest_version = %latest_version,
+                "Cache stale - newer version available"
+            );
         }
 
-        debug!("Cache miss for {}", device_id);
+        debug!("Cache miss - fetching from registry");
         metrics::counter!("firmware_cache_miss_total", &prometheus_labels).increment(1);
 
         // No lock is held here during the await
         let blob = self.client.fetch_blob(device_id, &latest_tag).await?;
-        info!("Downloaded {} bytes", blob.len());
+        let blob_len = blob.len();
+        info!(bytes = blob_len, "Downloaded firmware");
 
-        let firmware_bytes = blob;
+        let firmware_bytes = Bytes::from(blob);
         let crc = crc32fast::hash(&firmware_bytes);
         let info = Arc::new(FirmwareInfo {
             version: latest_version.clone(),
-            size: firmware_bytes.len(),
+            size: blob_len,
             crc,
             binary: firmware_bytes,
         });
@@ -160,8 +216,8 @@ impl FirmwareManager {
         // Reacquire the lock to update the cache
         {
             let mut cache = self.cache.lock();
-            cache.insert(device_id.to_string(), Arc::clone(&info));
-            debug!("Cached {}@{}", device_id, info.version);
+            cache.put(device_id.to_string(), Arc::clone(&info));
+            debug!(version = %info.version, "Cached firmware");
         }
 
         Ok(info)

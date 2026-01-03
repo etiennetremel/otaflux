@@ -23,6 +23,7 @@ variables take precedence when both are provided.
 | `--listen-addr` | `LISTEN_ADDR` | HTTP server bind address | `0.0.0.0:8080` |
 | `--metrics-listen-addr` | `METRICS_LISTEN_ADDR` | Metrics server bind address | `0.0.0.0:9090` |
 | `--log-level` | `LOG_LEVEL` | Log verbosity (trace, debug, info, warn, error) | `info` |
+| `--cache-size` | `CACHE_SIZE` | Maximum number of firmware entries to cache (LRU eviction) | `100` |
 
 ### MQTT Options
 
@@ -67,6 +68,7 @@ otaflux \
     --mqtt-ca-cert-path "/etc/otaflux/certs/ca.crt" \
     --mqtt-client-cert-path "/etc/otaflux/certs/client.crt" \
     --mqtt-client-key-path "/etc/otaflux/certs/client.key" \
+    --cache-size 200 \
     --log-level "info"
 ```
 
@@ -77,6 +79,7 @@ export REGISTRY_URL="https://ghcr.io"
 export REPOSITORY_PREFIX="myorg/firmware/"
 export REGISTRY_USERNAME="user"
 export REGISTRY_PASSWORD="token"
+export CACHE_SIZE="50"
 export LOG_LEVEL="debug"
 
 otaflux
@@ -135,6 +138,7 @@ Returns the latest firmware version, CRC32 checksum, and size for the specified 
 | Response Code | Description |
 |---------------|-------------|
 | `200 OK` | Firmware found |
+| `400 Bad Request` | Missing `device` query parameter |
 | `404 Not Found` | No firmware available for device |
 
 **Example:**
@@ -173,6 +177,7 @@ Downloads the firmware binary for the specified device.
 | Response Code | Description |
 |---------------|-------------|
 | `200 OK` | Firmware binary returned |
+| `400 Bad Request` | Missing `device` query parameter |
 | `404 Not Found` | No firmware available for device |
 
 **Example:**

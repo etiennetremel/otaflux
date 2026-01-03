@@ -149,3 +149,27 @@ async fn test_ignores_non_semver_tags() {
 
     assert_eq!(version, "1.0.0", "Should select only valid semver tag");
 }
+
+#[tokio::test]
+async fn test_version_endpoint_missing_device_param() {
+    init_tracing();
+
+    let registry = MockRegistryBuilder::new().await.build().await;
+    let app = create_app(registry.firmware_manager());
+
+    let request = Request::builder()
+        .uri("/version")
+        .method("GET")
+        .body(Body::empty())
+        .expect("build request");
+
+    let response = app.oneshot(request).await.expect("send request");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = body_to_string(response.into_body()).await;
+    assert!(
+        body.contains("device"),
+        "Error should mention missing device parameter"
+    );
+}
