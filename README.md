@@ -1,48 +1,58 @@
 # OtaFlux - OTA Firmware Updater (through OCI registry)
 
-> An OTA (Over-the-Air) firmware update server that fetches, caches, and serves
-> firmware binaries from an OCI-compatible container registry.
+[![Build](https://github.com/etiennetremel/otaflux/actions/workflows/build.yaml/badge.svg)](https://github.com/etiennetremel/otaflux/actions/workflows/build.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Helm Chart](https://img.shields.io/badge/Helm-Chart-blue)](https://github.com/etiennetremel/otaflux/pkgs/container/helm-charts%2Fotaflux)
 
-OtaFlux enables IoT devices (like ESP32 or STM32) to fetch firmware updates
-without complex orchestration. Devices periodically query the server, which
-checks the latest semver tag in a remote [OCI][oci] registry (such as
-[Harbor][harbor]), pulls the firmware image, extracts the binary, computes its
-CRC and size, caches it, and serves it on demand.
+> OTA firmware update server that serves binaries from OCI registries.
+
+OtaFlux lets IoT devices (ESP32, STM32, etc.) fetch firmware updates without
+complex orchestration. It pulls the latest semver-tagged image from an
+[OCI][oci] registry (Harbor, GHCR, etc.), extracts the binary, computes CRC32
+and size, caches it, and serves it on demand.
 
 ## Overview
 
 ```mermaid
 flowchart LR
-    OtaFlux(fa:fa-upload OtaFlux<br>Firmware<br>Updater)
-    MQTT(fa:fa-server MQTT<br>Broker)
-
     subgraph Devices
-    DeviceA(fa:fa-microchip ESP32<br /><small><i>Device A</i></small>)
-    DeviceB(fa:fa-microchip ESP32<br /><small><i>Device B</i></small>)
-    DeviceC(fa:fa-microchip STM32<br /><small><i>Device C</i></small>)
+        DeviceA[ESP32<br>Device A]
+        DeviceB[ESP32<br>Device B]
+        DeviceC[STM32<br>Device C]
     end
 
-    subgraph Harbor["Harbor OCI Registry"]
-    FirmwareA(fa:fa-database firmware-a:v0.1.1)
-    FirmwareB(fa:fa-database firmware-b:v1.6.2)
-    FirmwareC(fa:fa-database firmware-c:v0.5.4)
+    OtaFlux[OtaFlux]
+    MQTT[MQTT Broker]
+
+    subgraph Registry["OCI Registry"]
+        FirmwareA[firmware-a:v0.1.1]
+        FirmwareB[firmware-b:v1.6.2]
+        FirmwareC[firmware-c:v0.5.4]
     end
 
-    Devices--Poll for updates / Download firmware-->OtaFlux
-    OtaFlux--Pull and cache-->Harbor
-    Harbor--Webhook on push-->OtaFlux
-    OtaFlux--Publish notification-->MQTT
-    MQTT--Notify-->Devices
+    Devices -- "1. Poll / Download" --> OtaFlux
+    OtaFlux -- "2. Pull & cache" --> Registry
+    Registry -. "Webhook on push" .-> OtaFlux
+    OtaFlux -. "Publish notification" .-> MQTT
+    MQTT -. "Notify" .-> Devices
 ```
+
+### How It Works
+
+1. **Device polls OtaFlux** - Devices query `/version?device=<id>` to check for updates
+2. **OtaFlux fetches from registry** - On first request or cache miss, OtaFlux pulls the latest semver-tagged image from the OCI registry
+3. **Firmware is cached** - Binary is extracted, CRC32 computed, and cached in memory
+4. **Device downloads firmware** - If a newer version is available, device fetches the binary from `/firmware?device=<id>`
+5. **(Optional) Push notifications** - When Harbor webhooks are configured, OtaFlux publishes MQTT notifications immediately after new images are pushed
 
 ## Features
 
-- Pull firmware directly from OCI registries (Docker, Harbor, etc.)
-- Per-device firmware discovery using semver tags
-- Cache firmware with version, CRC32, and size metadata
-- [MQTT notifications](docs/mqtt.md) for push-based update triggers
-- [Harbor webhook integration](docs/webhooks.md) for instant cache refresh
-- [Cosign signature verification](docs/cosign.md) for firmware authenticity
+- **OCI registry support** - Pull firmware from Docker, Harbor, GHCR, etc.
+- **Semver tag discovery** - Automatically selects the latest version per device
+- **Caching** - Stores firmware with version, CRC32, and size metadata
+- **[MQTT notifications](docs/mqtt.md)** - Push-based update triggers
+- **[Harbor webhooks](docs/webhooks.md)** - Instant cache refresh on push
+- **[Cosign verification](docs/cosign.md)** - Cryptographic signature checks
 
 ## Quick Start
 
@@ -57,7 +67,7 @@ podman run -ti --rm \
         --registry-password "password"
 ```
 
-Query firmware version:
+Query the latest firmware version:
 
 ```bash
 curl 'localhost:8080/version?device=my-device'
@@ -67,7 +77,7 @@ curl 'localhost:8080/version?device=my-device'
 942320
 ```
 
-Download firmware:
+Download the firmware binary:
 
 ```bash
 curl -o firmware.bin 'localhost:8080/firmware?device=my-device'
@@ -78,19 +88,19 @@ curl -o firmware.bin 'localhost:8080/firmware?device=my-device'
 | Document | Description |
 |----------|-------------|
 | [Configuration](docs/configuration.md) | CLI options, environment variables, and API reference |
+| [Architecture](docs/architecture.md) | Technical deep-dive on caching, concurrency, and components |
 | [MQTT Notifications](docs/mqtt.md) | Push-based update notifications via MQTT |
 | [Harbor Webhooks](docs/webhooks.md) | Webhook integration for Harbor registry |
 | [Cosign Verification](docs/cosign.md) | Firmware signing and verification |
 
 ## Deployment
 
-### Getting Started
+### Prerequisites
 
 This project uses [mise](https://mise.jdx.dev/) to manage development tools.
-After [installing mise](https://mise.jdx.dev/getting-started.html), run:
+After [installing mise](https://mise.jdx.dev/getting-started.html):
 
 ```bash
-# Install Rust and other tools defined in mise.toml
 mise install
 ```
 
@@ -107,29 +117,26 @@ cargo run -- \
 
 ### Testing
 
-Run all tests:
-
 ```bash
 cargo test
 ```
 
-The test suite includes:
-- **health_test** - Health endpoint
-- **version_test** - Version endpoint and semver tag selection
-- **firmware_test** - Firmware download and caching
-- **webhook_test** - Harbor webhook integration with MQTT (requires Docker/Podman)
+The test suite covers:
+- Health endpoint
+- Version endpoint and semver tag selection
+- Firmware download and caching
+- Harbor webhook integration with MQTT (requires Docker/Podman)
 
 Tests use [wiremock](https://wiremock.rs/) to mock the OCI registry and
-[testcontainers](https://testcontainers.com/) to spin up a real Mosquitto MQTT
-broker for webhook tests.
+[testcontainers](https://testcontainers.com/) for a real Mosquitto broker.
 
-For verbose output when debugging:
+For verbose output:
 
 ```bash
 RUST_LOG=debug cargo test -- --nocapture
 ```
 
-### Kubernetes (Helm)
+### Kubernetes
 
 ```bash
 helm install otaflux \
@@ -139,19 +146,46 @@ helm install otaflux \
 
 ## Examples
 
-- **IoT Integration**: [etiennetremel/esp32-home-sensor][esp32-home-sensor] -
-  ESP32 device performing OTA updates using OtaFlux
-- **Infrastructure Setup**: [etiennetremel/homie-lab][homie-lab] - Registry and
-  infrastructure provisioning
+- [etiennetremel/esp32-home-sensor][esp32-home-sensor] - ESP32 device using
+  OtaFlux for OTA updates
+- [etiennetremel/homie-lab][homie-lab] - Registry and infrastructure setup
+
+## Troubleshooting
+
+### Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `No firmware for device 'X'` | Device not found in registry or no semver tags | Verify the repository exists and has tags like `v1.0.0`, `1.0.0` |
+| `401 Unauthorized` | Invalid registry credentials | Check `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` |
+| Connection refused | OtaFlux not reachable | Verify `--listen-addr` and firewall rules |
+| MQTT not publishing | MQTT URL not configured or broker unreachable | Check `--mqtt-url` and broker connectivity |
+| Signature verification failed | Invalid or missing cosign signature | Ensure artifact is signed with the correct key |
+
+### Debug Mode
+
+Enable debug logging to diagnose issues:
+
+```bash
+otaflux --log-level debug ...
+# or
+LOG_LEVEL=debug otaflux ...
+```
+
+### Health Check
+
+Verify OtaFlux is running:
+
+```bash
+curl http://localhost:8080/health
+# Returns: 200 OK
+```
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE).
 
 <!-- page links -->
-[docker]: https://www.docker.com
 [esp32-home-sensor]: https://github.com/etiennetremel/esp32-home-sensor
-[harbor]: https://goharbor.io
 [homie-lab]: https://github.com/etiennetremel/homie-lab
 [oci]: https://opencontainers.org
-[podman]: https://podman.io

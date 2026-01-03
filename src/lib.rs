@@ -7,6 +7,7 @@ pub mod registry;
 use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -16,6 +17,10 @@ use crate::api::router::api_router;
 use crate::firmware_manager::FirmwareManager;
 use crate::metrics::router::metrics_router;
 use crate::notifier::{Notifier, TlsConfig};
+
+const DEFAULT_CACHE_SIZE: usize = 100;
+const MQTT_MAX_CONSECUTIVE_ERRORS: u32 = 10;
+const MQTT_ERROR_BACKOFF_SECS: u64 = 5;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -55,6 +60,8 @@ pub struct Cli {
     pub metrics_listen_addr: String,
     #[clap(long, env, default_value = "info")]
     log_level: LevelFilter,
+    #[clap(long, env, default_value_t = DEFAULT_CACHE_SIZE)]
+    pub cache_size: usize,
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -85,6 +92,7 @@ fn normalize_repository_prefix(val: &str) -> Result<String, String> {
 /// # Panics
 ///
 /// Panics if the Ctrl+C signal handler fails to register.
+#[allow(clippy::too_many_lines)]
 pub async fn run(cli: Cli) -> Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
@@ -107,23 +115,27 @@ pub async fn run(cli: Cli) -> Result<()> {
     });
 
     // Firmware manager initialization
-    let firmware_manager = Arc::new(FirmwareManager::new(
+    let firmware_manager = Arc::new(FirmwareManager::with_cache_size(
         cli.registry_url,
         cli.registry_username,
         cli.registry_password,
         cli.registry_insecure,
         &cli.repository_prefix,
         cli.cosign_pub_key_path,
+        cli.cache_size,
     )?);
 
-    info!("Firmware manager created. Server will fetch firmware on demand per device.");
+    info!(
+        cache_size = cli.cache_size,
+        "Firmware manager created. Server will fetch firmware on demand per device."
+    );
 
-    // Start servers
     let fm = Arc::clone(&firmware_manager);
 
     let main_server_cancel_token = cancel_token.clone();
     let metrics_server_cancel_token = cancel_token.clone();
 
+    // MQTT notifier setup
     let mut notifier: Option<Notifier> = None;
     if let Some(mqtt_url) = cli.mqtt_url {
         // Build TLS config if CA certificate path is provided
@@ -168,10 +180,41 @@ pub async fn run(cli: Cli) -> Result<()> {
         ) {
             Ok((n, mut eventloop)) => {
                 notifier = Some(n);
+                // Spawn a background task to drive the MQTT event loop.
+                // The event loop must be continuously polled to maintain the broker connection
+                // and process incoming/outgoing messages.
                 tokio::spawn(async move {
+                    // Track consecutive errors to implement exponential backoff.
+                    // Without backoff, transient broker issues (network blips, broker restarts)
+                    // would cause a tight error loop that floods logs and wastes CPU.
+                    let mut consecutive_errors: u32 = 0;
                     loop {
-                        if let Err(e) = eventloop.poll().await {
-                            error!("MQTT event loop error: {e:?}");
+                        match eventloop.poll().await {
+                            Ok(_) => {
+                                // Successful poll resets the error counter - connection is healthy.
+                                consecutive_errors = 0;
+                            }
+                            Err(e) => {
+                                // saturating_add prevents overflow if errors continue indefinitely.
+                                consecutive_errors = consecutive_errors.saturating_add(1);
+                                error!(
+                                    error = ?e,
+                                    consecutive_errors,
+                                    "MQTT event loop error"
+                                );
+                                // After too many consecutive failures, pause before retrying.
+                                // This gives the broker time to recover and prevents log spam.
+                                if consecutive_errors >= MQTT_MAX_CONSECUTIVE_ERRORS {
+                                    warn!(
+                                        backoff_secs = MQTT_ERROR_BACKOFF_SECS,
+                                        "Too many consecutive MQTT errors, backing off"
+                                    );
+                                    tokio::time::sleep(Duration::from_secs(
+                                        MQTT_ERROR_BACKOFF_SECS,
+                                    ))
+                                    .await;
+                                }
+                            }
                         }
                     }
                 });

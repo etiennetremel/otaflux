@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 tokio-util = "0.7.15"
 parking_lot = "0.12"
+lru = "0.12"
 tokio = { version = "1.45.0", features = ["full"] }
 crc32fast = "1.4.2"
 bytes = "1.10.1"
