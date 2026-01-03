@@ -12,13 +12,11 @@ brick devices or enable remote code execution.
 
 Cosign provides:
 
-| Benefit | Description |
-|---------|-------------|
-| **Cryptographic integrity** | Signatures tied to specific image digests |
-| **Tamper detection** | Any modification invalidates the signature |
-| **Non-repudiation** | Only key holders can sign |
-| **Transparency logs** | Optional Rekor integration for audit trails |
-| **Standard tooling** | Works with any OCI-compliant registry |
+- **Cryptographic integrity**: Signatures tied to specific image digests
+- **Tamper detection**: Any modification invalidates the signature
+- **Non-repudiation**: Only key holders can sign
+- **Transparency logs**: Optional Rekor integration for audit trails
+- **Standard tooling**: Works with any OCI-compliant registry
 
 **OtaFlux rejects unsigned or tampered images before serving firmware.**
 
@@ -189,31 +187,6 @@ jobs:
           rm cosign.key
 ```
 
-### GitLab CI
-
-```yaml
-build-and-sign:
-  stage: deploy
-  image: debian:bookworm
-  variables:
-    COSIGN_VERSION: "2.2.0"
-    ORAS_VERSION: "1.1.0"
-  before_script:
-    - apt-get update && apt-get install -y curl jq
-    - curl -sLO https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64
-    - chmod +x cosign-linux-amd64 && mv cosign-linux-amd64 /usr/local/bin/cosign
-    - curl -sLO https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz
-    - tar -xzf oras_${ORAS_VERSION}_linux_amd64.tar.gz -C /usr/local/bin oras
-  script:
-    - oras login ${REGISTRY} -u ${REGISTRY_USERNAME} -p ${REGISTRY_PASSWORD}
-    - oras push "${REGISTRY}/${REPOSITORY}:${CI_COMMIT_TAG}" firmware.bin:application/octet-stream
-    - DIGEST=$(oras manifest fetch "${REGISTRY}/${REPOSITORY}:${CI_COMMIT_TAG}" --descriptor | jq -r '.digest')
-    - echo "${COSIGN_PRIVATE_KEY}" > cosign.key
-    - cosign sign --key cosign.key "${REGISTRY}/${REPOSITORY}@${DIGEST}"
-  only:
-    - tags
-```
-
 ## Key Management
 
 ### Key Storage Options
@@ -283,16 +256,7 @@ cosign sign --oidc-issuer https://token.actions.githubusercontent.com \
 
 ## Troubleshooting
 
-### Verification Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `no matching signatures found` | Image not signed | Sign the image with `cosign sign` |
-| `signature verification failed` | Wrong public key | Verify you're using the matching key pair |
-| `failed to verify` | Signature for different digest | Re-sign after any image modification |
-| `public key not found` | Missing key file | Check `--cosign-pub-key-path` path |
-
-### Debug Verification
+### Verification
 
 Test signature verification manually:
 
@@ -336,86 +300,6 @@ OtaFlux expects a PEM-formatted public key:
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
 -----END PUBLIC KEY-----
 ```
-
-### Enable Debug Logging
-
-```bash
-otaflux --log-level debug --cosign-pub-key-path cosign.pub ...
-```
-
-Look for signature verification logs.
-
-## Docker/Podman Deployment
-
-Mount the public key as a volume:
-
-```bash
-podman run -ti --rm \
-    -v $PWD/cosign.pub:/etc/otaflux/cosign.pub:ro \
-    -p 8080:8080 \
-    -p 9090:9090 \
-    ghcr.io/etiennetremel/otaflux \
-        --registry-url "https://registry.example.com" \
-        --repository-prefix "my-project/" \
-        --registry-username "username" \
-        --registry-password "password" \
-        --cosign-pub-key-path "/etc/otaflux/cosign.pub"
-```
-
-## Kubernetes Deployment
-
-### Using Helm
-
-```yaml
-# values.yaml
-otaflux:
-  cosignPubKey: |
-    -----BEGIN PUBLIC KEY-----
-    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
-    -----END PUBLIC KEY-----
-```
-
-### Using Secrets
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: otaflux-cosign
-type: Opaque
-data:
-  cosign.pub: <base64-encoded-public-key>
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: otaflux
-spec:
-  template:
-    spec:
-      containers:
-        - name: otaflux
-          args:
-            - --cosign-pub-key-path=/etc/otaflux/cosign.pub
-          volumeMounts:
-            - name: cosign
-              mountPath: /etc/otaflux
-              readOnly: true
-      volumes:
-        - name: cosign
-          secret:
-            secretName: otaflux-cosign
-```
-
-## Best Practices
-
-1. **Always sign with digest** - Tags are mutable; digests are not
-2. **Use KMS in production** - Don't store private keys as files
-3. **Automate in CI/CD** - Human signing is error-prone
-4. **Rotate keys periodically** - Especially if team members leave
-5. **Verify before deploy** - Test signature verification in staging
-6. **Monitor failures** - Alert on signature verification errors
-7. **Keep public keys versioned** - Store in source control or secret manager
 
 <!-- page links -->
 [cosign-cli]: https://docs.sigstore.dev/cosign/system_config/installation/

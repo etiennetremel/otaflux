@@ -83,10 +83,10 @@ otaflux \
 > only some are set, OtaFlux logs a warning and continues without client
 > authentication.
 
-### Docker/Podman Example
+### Docker Example
 
 ```bash
-podman run -ti --rm \
+docker run -ti --rm \
     -v $PWD/certs:/etc/otaflux/certs:ro \
     -p 8080:8080 \
     -p 9090:9090 \
@@ -164,44 +164,6 @@ Messages are published with the **retain flag set to `true`**, meaning:
 
 ## Device Integration
 
-### ESP32 Example (Arduino)
-
-```cpp
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
-
-const char* MQTT_BROKER = "mqtt-broker.local";
-const char* DEVICE_ID = "esp32-sensor";
-const char* CURRENT_VERSION = "1.0.0";
-
-WiFiClient espClient;
-PubSubClient mqtt(espClient);
-
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, payload, length);
-    
-    const char* newVersion = doc["version"];
-    int size = doc["size"];
-    
-    if (strcmp(newVersion, CURRENT_VERSION) != 0) {
-        Serial.printf("New firmware available: %s (%d bytes)\n", newVersion, size);
-        startOtaUpdate();
-    }
-}
-
-void setup() {
-    // Connect to WiFi...
-    
-    mqtt.setServer(MQTT_BROKER, 1883);
-    mqtt.setCallback(mqttCallback);
-    
-    String topic = String("firmware/updates/") + DEVICE_ID;
-    mqtt.subscribe(topic.c_str());
-}
-```
-
 ### Rust Example
 
 ```rust
@@ -231,30 +193,6 @@ async fn handle_message(payload: &[u8], current_version: &str) {
         // Trigger OTA update...
     }
 }
-```
-
-### Python Example
-
-```python
-import json
-import paho.mqtt.client as mqtt
-
-DEVICE_ID = "esp32-sensor"
-CURRENT_VERSION = "1.0.0"
-OTAFLUX_URL = "http://otaflux:8080"
-
-def on_message(client, userdata, msg):
-    update = json.loads(msg.payload)
-    
-    if update["version"] != CURRENT_VERSION:
-        print(f"New firmware: {update['version']} ({update['size']} bytes)")
-        # Download firmware from OtaFlux...
-
-client = mqtt.Client()
-client.on_message = on_message
-client.connect("mqtt-broker", 1883)
-client.subscribe(f"firmware/updates/{DEVICE_ID}")
-client.loop_forever()
 ```
 
 ## Troubleshooting
@@ -296,15 +234,6 @@ mosquitto_sub -h mqtt-broker -u user -P password -t "firmware/updates/#" -v
 # With TLS
 mosquitto_sub -h mqtt-broker -p 8883 --cafile ca.crt -t "firmware/updates/#" -v
 ```
-
-### Common Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `No notifier configured` | MQTT URL not set | Provide `--mqtt-url` |
-| `Failed to parse MQTT URL` | Invalid URL format | Check URL syntax |
-| `Connection refused` | Wrong port or broker down | Verify broker is running |
-| `Certificate verify failed` | CA cert doesn't match | Use correct CA certificate |
 
 ## Best Practices
 

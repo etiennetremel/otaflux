@@ -228,67 +228,6 @@ Returns Prometheus-formatted metrics. Served on the metrics port (default: 9090)
 curl http://localhost:9090/metrics
 ```
 
-## Device Integration
-
-### ESP32 Example (ESP-IDF)
-
-```c
-#include "esp_http_client.h"
-#include "esp_ota_ops.h"
-
-#define OTAFLUX_URL "http://otaflux.local:8080"
-#define DEVICE_ID "esp32-sensor"
-
-void check_for_update(void) {
-    char url[128];
-    snprintf(url, sizeof(url), "%s/version?device=%s", OTAFLUX_URL, DEVICE_ID);
-    
-    esp_http_client_config_t config = {
-        .url = url,
-    };
-    
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_perform(client);
-    
-    // Parse response: version\ncrc32\nsize
-    // Compare with current version and trigger OTA if needed
-    
-    esp_http_client_cleanup(client);
-}
-```
-
-### Arduino Example
-
-```cpp
-#include <HTTPClient.h>
-#include <Update.h>
-
-const char* OTAFLUX_URL = "http://otaflux.local:8080";
-const char* DEVICE_ID = "arduino-device";
-const char* CURRENT_VERSION = "1.0.0";
-
-void checkForUpdate() {
-    HTTPClient http;
-    String url = String(OTAFLUX_URL) + "/version?device=" + DEVICE_ID;
-    
-    http.begin(url);
-    int httpCode = http.GET();
-    
-    if (httpCode == 200) {
-        String response = http.getString();
-        // Parse version from first line
-        String newVersion = response.substring(0, response.indexOf('\n'));
-        
-        if (newVersion != CURRENT_VERSION) {
-            // Download and apply firmware
-            performOTA();
-        }
-    }
-    
-    http.end();
-}
-```
-
 ## Repository Naming Convention
 
 OtaFlux constructs the full repository path as:
