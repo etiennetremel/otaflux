@@ -13,8 +13,10 @@ use otaflux::firmware_manager::FirmwareManager;
 use otaflux::notifier::Notifier;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use wiremock::matchers::{method, path};
+use std::time::Duration;
+use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Represents a firmware artifact for testing.
@@ -51,7 +53,6 @@ impl MockRegistryBuilder {
     pub async fn new() -> Self {
         let server = MockServer::start().await;
 
-        // Mount the /v2/ endpoint (required for OCI registry handshake)
         Mock::given(method("GET"))
             .and(path("/v2/"))
             .respond_with(ResponseTemplate::new(200))
@@ -68,7 +69,6 @@ impl MockRegistryBuilder {
     pub async fn with_firmware(mut self, firmware: TestFirmware) -> Self {
         let device_id = firmware.device_id.clone();
 
-        // Build manifest for this firmware
         let manifest = serde_json::json!({
             "schemaVersion": 2,
             "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -89,7 +89,6 @@ impl MockRegistryBuilder {
         manifest_hasher.update(&manifest_bytes);
         let manifest_digest = format!("sha256:{:x}", manifest_hasher.finalize());
 
-        // Mock manifest endpoint
         Mock::given(method("GET"))
             .and(path(format!(
                 "/v2/{}/manifests/{}",
@@ -104,7 +103,6 @@ impl MockRegistryBuilder {
             .mount(&self.server)
             .await;
 
-        // Mock blob endpoint
         Mock::given(method("GET"))
             .and(path(format!("/v2/{}/blobs/{}", device_id, firmware.digest)))
             .respond_with(
@@ -117,7 +115,70 @@ impl MockRegistryBuilder {
             .mount(&self.server)
             .await;
 
-        // Track firmware for this device
+        self.devices.entry(device_id).or_default().push(firmware);
+
+        self
+    }
+
+    /// Adds a firmware artifact with a delayed blob response and fetch counter.
+    ///
+    /// Useful for testing concurrent request handling (e.g., thundering herd protection).
+    pub async fn with_firmware_delayed(
+        mut self,
+        firmware: TestFirmware,
+        delay: Duration,
+        fetch_counter: Arc<AtomicUsize>,
+    ) -> Self {
+        let device_id = firmware.device_id.clone();
+
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": "sha256:configdigest",
+                "size": 100
+            },
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": firmware.digest.clone(),
+                "size": firmware.bytes.len()
+            }]
+        });
+
+        let manifest_bytes = serde_json::to_vec(&manifest).expect("serialize manifest");
+        let mut manifest_hasher = Sha256::new();
+        manifest_hasher.update(&manifest_bytes);
+        let manifest_digest = format!("sha256:{:x}", manifest_hasher.finalize());
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/v2/{}/manifests/{}",
+                device_id, firmware.tag
+            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+                    .insert_header("Docker-Content-Digest", manifest_digest)
+                    .set_body_bytes(manifest_bytes),
+            )
+            .mount(&self.server)
+            .await;
+
+        let firmware_bytes = firmware.bytes.clone();
+        Mock::given(method("GET"))
+            .and(path_regex(format!(r"/v2/{device_id}/blobs/sha256:.*")))
+            .respond_with(move |_req: &wiremock::Request| {
+                fetch_counter.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "application/octet-stream")
+                    .insert_header("Content-Length", firmware_bytes.len().to_string())
+                    .set_body_bytes(firmware_bytes.clone())
+                    .set_delay(delay)
+            })
+            .mount(&self.server)
+            .await;
+
         self.devices.entry(device_id).or_default().push(firmware);
 
         self
@@ -125,7 +186,6 @@ impl MockRegistryBuilder {
 
     /// Finalizes the mock registry setup and mounts the tags endpoint.
     pub async fn build(self) -> MockRegistry {
-        // Mount tags endpoint for each device
         for (device_id, firmwares) in &self.devices {
             let tags: Vec<&str> = firmwares.iter().map(|f| f.tag.as_str()).collect();
 
@@ -169,21 +229,21 @@ impl MockRegistry {
                 self.host_port(),
                 "user".to_string(),
                 "pass".to_string(),
-                true, // insecure (HTTP)
-                "",   // no prefix
-                None, // no cosign
+                true,
+                "",
+                None,
             )
             .expect("create firmware manager"),
         )
     }
 }
 
-/// Helper to create a test app router without MQTT notifier.
+/// Creates a test app router without MQTT notifier.
 pub fn create_app(fm: Arc<FirmwareManager>) -> axum::Router {
     api_router(fm, None)
 }
 
-/// Helper to create a test app router with MQTT notifier.
+/// Creates a test app router with MQTT notifier.
 pub fn create_app_with_mqtt(
     fm: Arc<FirmwareManager>,
     mqtt_port: u16,
@@ -227,10 +287,11 @@ pub async fn body_to_bytes(body: Body) -> Vec<u8> {
 }
 
 /// Initialize tracing for tests (only once).
+///
 /// Defaults to `warn` level to reduce noise. Use `RUST_LOG=debug` for verbose output.
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".to_string()))
-        .with_test_writer() // Integrates with Rust's test capture
+        .with_test_writer()
         .try_init();
 }
