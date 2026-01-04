@@ -185,6 +185,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 notifier = Some(n);
                 let mqtt_cancel_token = cancel_token.clone();
                 tokio::spawn(async move {
+                    use rumqttc::{Event, Packet};
                     let mut consecutive_errors: u32 = 0;
                     loop {
                         tokio::select! {
@@ -194,9 +195,16 @@ pub async fn run(cli: Cli) -> Result<()> {
                             }
                             result = eventloop.poll() => {
                                 match result {
-                                    Ok(_) => {
+                                    Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                                        if consecutive_errors > 0 {
+                                            info!(
+                                                previous_errors = consecutive_errors,
+                                                "MQTT connection restored"
+                                            );
+                                        }
                                         consecutive_errors = 0;
                                     }
+                                    Ok(_) => {}
                                     Err(e) => {
                                         consecutive_errors = consecutive_errors.saturating_add(1);
 
@@ -213,7 +221,15 @@ pub async fn run(cli: Cli) -> Result<()> {
                                         let backoff_ms = MQTT_INITIAL_BACKOFF_MS
                                             .saturating_mul(2_u64.saturating_pow(consecutive_errors.saturating_sub(1)))
                                             .min(MQTT_MAX_BACKOFF_MS);
-                                        tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+
+                                        // Use select to allow cancellation during backoff sleep
+                                        tokio::select! {
+                                            () = mqtt_cancel_token.cancelled() => {
+                                                info!("MQTT event loop shutting down during backoff");
+                                                break;
+                                            }
+                                            () = tokio::time::sleep(Duration::from_millis(backoff_ms)) => {}
+                                        }
                                     }
                                 }
                             }

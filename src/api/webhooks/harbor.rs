@@ -58,9 +58,9 @@ pub async fn harbor_webhook_handler(
         return StatusCode::OK;
     }
 
-    for resource in payload.event_data.resources {
-        let device_id = &payload.event_data.repository.name;
+    let device_id = &payload.event_data.repository.name;
 
+    for resource in &payload.event_data.resources {
         info!(
             device_id = %device_id,
             tag = %resource.tag,
@@ -79,12 +79,16 @@ pub async fn harbor_webhook_handler(
                         if let Some(notifier) = &app.notifier {
                             match notifier.publish(device_id.clone(), payload_bytes).await {
                                 Ok(()) => {
-                                    info!(device_id = %device_id, "Published firmware notification");
-                                    break;
+                                    info!(
+                                        device_id = %device_id,
+                                        tag = %resource.tag,
+                                        "Published firmware notification"
+                                    );
                                 }
                                 Err(e) => {
                                     warn!(
                                         device_id = %device_id,
+                                        tag = %resource.tag,
                                         error = ?e,
                                         "Failed to publish MQTT notification"
                                     );
@@ -97,6 +101,7 @@ pub async fn harbor_webhook_handler(
                     Err(e) => {
                         warn!(
                             device_id = %device_id,
+                            tag = %resource.tag,
                             error = ?e,
                             "Failed to serialize firmware payload"
                         );
@@ -106,6 +111,7 @@ pub async fn harbor_webhook_handler(
             Err(e) => {
                 warn!(
                     device_id = %device_id,
+                    tag = %resource.tag,
                     error = ?e,
                     "Failed to get firmware"
                 );

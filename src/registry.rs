@@ -33,6 +33,17 @@ struct ImageSection {
     docker_manifest_digest: String,
 }
 
+/// Result of fetching a firmware blob from the registry.
+#[derive(Debug)]
+pub struct FetchBlobResult {
+    /// The raw firmware binary data.
+    pub data: Vec<u8>,
+    /// The manifest digest (e.g., "sha256:abc123...") that uniquely identifies
+    /// the artifact version. Used for cache invalidation when an artifact is
+    /// rebuilt with the same semver tag.
+    pub manifest_digest: String,
+}
+
 #[derive(Clone)]
 pub struct RegistryClient {
     client: Client,
@@ -98,8 +109,19 @@ impl RegistryClient {
         Ok(tags_response.tags)
     }
 
+    /// Fetches the manifest digest for a given repository and tag without downloading the blob.
+    ///
+    /// This is a lightweight operation used to check if the cached firmware is still valid
+    /// by comparing digests.
     #[instrument(skip(self), fields(repository = %repository, tag = %tag))]
-    pub async fn fetch_blob(&self, repository: &str, tag: &str) -> Result<Vec<u8>> {
+    pub async fn fetch_manifest_digest(&self, repository: &str, tag: &str) -> Result<String> {
+        let image_ref = self.image_path(repository, Some(tag))?;
+        let (_, digest) = self.client.pull_manifest(&image_ref, &self.auth).await?;
+        Ok(digest)
+    }
+
+    #[instrument(skip(self), fields(repository = %repository, tag = %tag))]
+    pub async fn fetch_blob(&self, repository: &str, tag: &str) -> Result<FetchBlobResult> {
         let artifact_image_ref = self.image_path(repository, Some(tag))?;
         let (_artifact_manifest, artifact_manifest_digest) = self
             .client
@@ -149,7 +171,14 @@ impl RegistryClient {
             info!("Cosign payload verified and matches artifact digest");
         }
 
-        self.fetch_layer_blob(&artifact_image_ref, repository).await
+        let data = self
+            .fetch_layer_blob(&artifact_image_ref, repository)
+            .await?;
+
+        Ok(FetchBlobResult {
+            data,
+            manifest_digest: artifact_manifest_digest_str,
+        })
     }
 
     /// Fetches the cosign signature data for a given repository and signature tag.
