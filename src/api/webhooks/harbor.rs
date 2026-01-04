@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde::Serialize;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use crate::api::router::AppState;
 
@@ -46,61 +46,77 @@ pub struct FirmwarePayload {
     size: usize,
 }
 
+#[instrument(skip(app, payload), fields(event_type = %payload.event_type, operator = %payload.operator))]
 pub async fn harbor_webhook_handler(
     State(app): State<AppState>,
     Json(payload): Json<HarborWebhookPayload>,
 ) -> impl IntoResponse {
-    info!("Received Harbor webhook: {:?}", payload);
+    info!("Received Harbor webhook");
 
-    if payload.event_type == "PUSH_ARTIFACT" {
-        for resource in payload.event_data.resources {
-            let device_id = &payload.event_data.repository.name;
+    if payload.event_type != "PUSH_ARTIFACT" {
+        warn!(event_type = %payload.event_type, "Ignoring non-push event");
+        return StatusCode::OK;
+    }
 
-            info!(
-                "Harbor PUSH_ARTIFACT event: repository='{}', tag='{}', resource_url='{}'",
-                device_id, resource.tag, resource.resource_url
-            );
+    let device_id = &payload.event_data.repository.name;
 
-            match app.firmware_manager.get_firmware(device_id).await {
-                Ok(fw) => {
-                    // Create a struct to hold the firmware information
-                    let payload_data = FirmwarePayload {
-                        version: fw.version.to_string(), // Convert semver::Version to String
-                        size: fw.size,                   // Assuming fw.size is a u64
-                    };
+    for resource in &payload.event_data.resources {
+        info!(
+            device_id = %device_id,
+            tag = %resource.tag,
+            "Processing PUSH_ARTIFACT event"
+        );
 
-                    // Serialize the struct to a JSON byte vector
-                    match serde_json::to_vec(&payload_data) {
-                        Ok(payload_bytes) => {
-                            if let Some(notifier) = &app.notifier {
-                                match notifier.publish(device_id.clone(), payload_bytes).await {
-                                    Ok(()) => {
-                                        info!("Successfully published firmware notification for device '{}'", device_id);
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to publish MQTT notification for device '{}': {:?}", device_id, e);
-                                    }
+        match app.firmware_manager.get_firmware(device_id).await {
+            Ok(fw) => {
+                let payload_data = FirmwarePayload {
+                    version: fw.version.to_string(),
+                    size: fw.size,
+                };
+
+                match serde_json::to_vec(&payload_data) {
+                    Ok(payload_bytes) => {
+                        if let Some(notifier) = &app.notifier {
+                            match notifier.publish(device_id.clone(), payload_bytes).await {
+                                Ok(()) => {
+                                    info!(
+                                        device_id = %device_id,
+                                        tag = %resource.tag,
+                                        "Published firmware notification"
+                                    );
                                 }
-                            } else {
-                                warn!("No notifier configured, skipping MQTT notification");
+                                Err(e) => {
+                                    warn!(
+                                        device_id = %device_id,
+                                        tag = %resource.tag,
+                                        error = ?e,
+                                        "Failed to publish MQTT notification"
+                                    );
+                                }
                             }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to serialize firmware payload for device '{}': {:?}",
-                                device_id, e
-                            );
+                        } else {
+                            warn!("No notifier configured, skipping MQTT notification");
                         }
                     }
-                }
-                Err(e) => {
-                    warn!("Failed to get firmware for device '{}': {:?}", device_id, e);
+                    Err(e) => {
+                        warn!(
+                            device_id = %device_id,
+                            tag = %resource.tag,
+                            error = ?e,
+                            "Failed to serialize firmware payload"
+                        );
+                    }
                 }
             }
+            Err(e) => {
+                warn!(
+                    device_id = %device_id,
+                    tag = %resource.tag,
+                    error = ?e,
+                    "Failed to get firmware"
+                );
+            }
         }
-    } else {
-        warn!("Ignoring Harbor webhook event type: {}", payload.event_type);
     }
 
     StatusCode::OK

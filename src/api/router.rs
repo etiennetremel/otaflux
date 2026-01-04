@@ -13,7 +13,6 @@ use crate::firmware_manager::FirmwareManager;
 use crate::metrics::middleware::track_metrics;
 use crate::notifier::Notifier;
 
-// Creates the API router with all the necessary routes and middleware.
 #[derive(Clone)]
 pub struct AppState {
     pub firmware_manager: Arc<FirmwareManager>,
@@ -32,15 +31,12 @@ pub fn api_router(firmware_manager: Arc<FirmwareManager>, notifier: Option<Notif
         notifier,
     };
 
-    let metrics_route = Router::new()
+    Router::new()
         .route("/version", get(version_handler))
         .route("/firmware", get(firmware_handler))
         .route("/health", get(health_handler))
-        .route_layer(middleware::from_fn(track_metrics));
-
-    Router::new()
-        .merge(metrics_route)
         .route("/webhooks/harbor", post(harbor_webhook_handler))
+        .layer(middleware::from_fn(track_metrics))
         .with_state(app_state)
         .layer(TraceLayer::new_for_http())
 }

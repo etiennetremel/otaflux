@@ -3,13 +3,11 @@ use rumqttc::EventLoop;
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::info;
+use tracing::{info, instrument};
 
-/// TLS configuration for MQTT connections.
 #[derive(Clone, Debug)]
 pub struct TlsConfig {
     pub ca_cert: Vec<u8>,
-    /// Optional client certificate and key for mutual TLS
     pub client_auth: Option<(Vec<u8>, Vec<u8>)>,
 }
 
@@ -20,18 +18,11 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    /// Creates a new Notifier with optional TLS configuration.
-    ///
-    /// # Arguments
-    /// * `url` - MQTT broker URL (e.g., "mqtt://host:port" or "mqtts://host:port")
-    /// * `username` - MQTT username (can be empty for anonymous)
-    /// * `password` - MQTT password (can be empty for anonymous)
-    /// * `topic` - Base topic prefix for publishing
-    /// * `tls_config` - Optional TLS configuration for secure connections
+    /// Creates a new MQTT notifier and returns both the notifier and its event loop.
     ///
     /// # Errors
     ///
-    /// Returns an error if parsing the MQTT URL fails.
+    /// Returns an error if the MQTT URL is invalid or TLS configuration fails.
     pub fn new(
         url: String,
         username: String,
@@ -66,14 +57,10 @@ impl Notifier {
         ))
     }
 
-    /// Publishes a payload to the MQTT broker for the given device.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if publishing the MQTT message fails.
+    #[instrument(skip(self, payload), fields(topic = %format!("{}/{}", self.topic, device_id)))]
     pub async fn publish(&self, device_id: String, payload: Vec<u8>) -> Result<(), anyhow::Error> {
         let topic = format!("{}/{}", self.topic, device_id);
-        info!("Publishing payload to topic {:?}: {:?}", topic, payload);
+        info!(payload_size = payload.len(), "Publishing MQTT message");
         self.client
             .publish(topic.clone(), QoS::AtLeastOnce, true, payload)
             .await

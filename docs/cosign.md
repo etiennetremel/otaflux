@@ -1,118 +1,129 @@
 # Firmware Signing with Cosign
 
-OtaFlux supports firmware image signing using Cosign, a tool from the Sigstore
-ecosystem designed to sign and verify container images and other OCI artifacts.
+OtaFlux verifies firmware signatures using [Cosign][cosign-cli], a Sigstore tool
+for signing OCI artifacts. When enabled, OtaFlux rejects unsigned or tampered
+images before serving firmware to devices.
 
-## Why This Matters
+## Why Sign Firmware?
 
-Distributing firmware over-the-air introduces risks. A compromised registry, a
-man-in-the-middle attack, or accidental deployment of an unverified build can
-all lead to bricked devices or worse: remote code execution. Firmware
-authenticity must be verifiable before an update is accepted.
+OTA updates expose devices to supply-chain attacks. Compromised registries,
+man-in-the-middle attacks, or accidental deployment of unverified builds can
+brick devices or enable remote code execution.
 
 Cosign provides:
 
-- **Cryptographic integrity checks** using signatures tied to a specific image
-  digest
-- **Optional transparency logs** via Rekor, which publicly record signing events
-  for later auditing
-- **Standard tooling** that works with any OCI-compliant registry (Harbor, GitHub
-  Container Registry, etc.)
+- **Cryptographic integrity**: Signatures tied to specific image digests
+- **Tamper detection**: Any modification invalidates the signature
+- **Non-repudiation**: Only key holders can sign
+- **Transparency logs**: Optional Rekor integration for audit trails
+- **Standard tooling**: Works with any OCI-compliant registry
 
-**OtaFlux verifies signatures before serving firmware to a device, so unsigned
-or tampered images are automatically rejected.**
+**OtaFlux rejects unsigned or tampered images before serving firmware.**
 
 ## Prerequisites
 
-You will need:
+| Tool | Purpose | Installation |
+|------|---------|--------------|
+| [Cosign CLI][cosign-cli] | Sign and verify images | `brew install cosign` or [releases](https://github.com/sigstore/cosign/releases) |
+| [ORAS CLI][oras] | Push OCI artifacts | `brew install oras` or [releases](https://oras.land/docs/installation) |
 
-- [Cosign CLI][cosign-cli]
-- [ORAS CLI][oras] (for pushing firmware artifacts)
+## Quick Start
 
-## Generate Key Pair
-
-Generate a Cosign key pair for signing firmware images:
+### 1. Generate a Key Pair
 
 ```bash
-# Generate key pair (creates cosign.pub and cosign.key)
-# You can leave the password empty for automation
 cosign generate-key-pair
+# Creates: cosign.pub (public key) and cosign.key (private key)
+# Leave password empty for CI automation (or use KMS)
 ```
 
-> **Important**: Keep both keys in a secure environment (e.g., KMS, HSM, or
-> encrypted storage). The private key should only be accessible to your CI/CD
-> pipeline.
+> **Security**: Store the private key securely (KMS, HSM, or encrypted storage).
+> Only your CI/CD pipeline should access it. The public key can be distributed.
 
-## Build and Push Firmware
+### 2. Build and Push Firmware
 
-Build your firmware image and push it to an OCI registry. Below is an example
-using [espflash][espflash] for ESP32-based devices:
+Build your firmware and push it to an OCI registry:
 
 ```bash
-# Required for ESP workflow
-. $HOME/export-esp.sh
-
-# Compile project
+# Example: ESP32 firmware
 cargo build --release
-
-# Save as binary image
-espflash save-image \
-    --chip esp32 \
+espflash save-image --chip esp32 \
     ./target/xtensa-esp32-none-elf/release/my-device \
     ./firmware.bin
 
-# Push the firmware binary to an OCI registry
-oras push "registry.example.com:443/my-project/my-device:0.1.2" \
+# Push to registry
+oras push "registry.example.com/my-project/my-device:1.0.0" \
     firmware.bin:application/vnd.espressif.esp32.firmware.v1+binary
 ```
 
-## Sign the Artifact
+### 3. Sign the Artifact
 
-Sign the artifact using Cosign (you need the sha256 digest of the pushed image):
+Sign using the image digest (not the tag):
 
 ```bash
-# Sign the artifact
+# Get the digest
+DIGEST=$(oras manifest fetch "registry.example.com/my-project/my-device:1.0.0" \
+    --descriptor | jq -r '.digest')
+
+# Sign
 cosign sign --key cosign.key \
-    registry.example.com:443/my-project/my-device@sha256:<digest>
-
-# Verify the signature (optional but recommended)
-cosign verify --key cosign.pub \
-    registry.example.com:443/my-project/my-device@sha256:<digest>
+    "registry.example.com/my-project/my-device@${DIGEST}"
 ```
 
-## Configure OtaFlux
+### 4. Configure OtaFlux
 
-Pass the public key to OtaFlux to enable signature verification:
+Provide the public key to enable verification:
 
 ```bash
-podman run -ti --rm \
-    -v $PWD/cosign.pub:/etc/otaflux/cosign.pub:ro \
-    -p 8080:8080 \
-    -p 9090:9090 \
-    ghcr.io/etiennetremel/otaflux \
-        --log-level "debug" \
-        --registry-url "https://your-registry.example.com" \
-        --repository-prefix "my-project/" \
-        --registry-username "username" \
-        --registry-password "password" \
-        --cosign-pub-key-path "/etc/otaflux/cosign.pub"
+otaflux \
+    --registry-url "https://registry.example.com" \
+    --repository-prefix "my-project/" \
+    --registry-username "username" \
+    --registry-password "password" \
+    --cosign-pub-key-path "/etc/otaflux/cosign.pub"
 ```
 
-## Test Verification
+### 5. Verify It Works
 
 ```bash
 curl 'localhost:8080/version?device=my-device'
-0.1.2
-2258256831
-953968
+# Returns version, CRC32, size if signature is valid
+1.0.0
+4051932293
+942320
 ```
 
-If the signature verification fails, OtaFlux returns an error and refuses to
-serve the firmware.
+If verification fails, OtaFlux returns an error and refuses to serve the firmware.
+
+## Signing Workflow
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant CI as CI/CD
+    participant Registry as OCI Registry
+    participant OtaFlux as OtaFlux
+    participant Device as Device
+
+    Dev->>CI: Push code
+    CI->>CI: Build firmware
+    CI->>Registry: Push image (oras push)
+    CI->>CI: Sign with cosign
+    CI->>Registry: Push signature
+
+    Device->>OtaFlux: GET /version?device=X
+    OtaFlux->>Registry: Fetch image + signature
+    OtaFlux->>OtaFlux: Verify signature
+    alt Signature valid
+        OtaFlux-->>Device: Version info
+    else Signature invalid
+        OtaFlux-->>Device: 500 Error
+    end
+```
 
 ## CI/CD Integration
 
-Example GitHub Actions workflow for automated signing:
+### GitHub Actions
 
 ```yaml
 name: Build and Sign Firmware
@@ -123,33 +134,171 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  build-and-sign:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # For keyless signing (optional)
+
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Set up build environment
+        run: |
+          # Your toolchain setup (e.g., ESP-IDF, PlatformIO)
+
       - name: Build firmware
         run: |
-          # Your build commands here
-          
+          # Your build commands
+          cargo build --release
+          # Create binary...
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
-        
+
       - name: Install ORAS
         uses: oras-project/setup-oras@v1
-        
-      - name: Push firmware
+
+      - name: Log in to registry
         run: |
-          oras push "${{ vars.REGISTRY }}/my-device:${{ github.ref_name }}" \
-            firmware.bin:application/vnd.espressif.esp32.firmware.v1+binary
-            
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | \
+            oras login ${{ vars.REGISTRY }} -u ${{ vars.REGISTRY_USERNAME }} --password-stdin
+
+      - name: Push firmware
+        id: push
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          oras push "${{ vars.REGISTRY }}/${{ vars.REPOSITORY }}:${VERSION}" \
+              firmware.bin:application/vnd.espressif.esp32.firmware.v1+binary
+          
+          DIGEST=$(oras manifest fetch "${{ vars.REGISTRY }}/${{ vars.REPOSITORY }}:${VERSION}" \
+              --descriptor | jq -r '.digest')
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+
       - name: Sign firmware
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
           echo "$COSIGN_KEY" > cosign.key
-          DIGEST=$(oras manifest fetch "${{ vars.REGISTRY }}/my-device:${{ github.ref_name }}" --descriptor | jq -r '.digest')
-          cosign sign --key cosign.key "${{ vars.REGISTRY }}/my-device@${DIGEST}"
+          cosign sign --key cosign.key \
+              "${{ vars.REGISTRY }}/${{ vars.REPOSITORY }}@${{ steps.push.outputs.digest }}"
+          rm cosign.key
+```
+
+## Key Management
+
+### Key Storage Options
+
+| Option | Security | Complexity | Use Case |
+|--------|----------|------------|----------|
+| File-based | Low | Low | Development, testing |
+| GitHub Secrets | Medium | Low | CI/CD pipelines |
+| AWS KMS | High | Medium | Production workloads |
+| Google Cloud KMS | High | Medium | GCP environments |
+| Azure Key Vault | High | Medium | Azure environments |
+| HashiCorp Vault | High | High | Multi-cloud, enterprise |
+
+### Using KMS (Recommended for Production)
+
+```bash
+# AWS KMS
+cosign generate-key-pair --kms awskms:///alias/cosign-key
+
+# Sign with KMS
+cosign sign --key awskms:///alias/cosign-key \
+    registry.example.com/project/device@sha256:...
+
+# GCP KMS
+cosign generate-key-pair --kms gcpkms://projects/PROJECT/locations/LOCATION/keyRings/RING/cryptoKeys/KEY
+
+# Azure Key Vault
+cosign generate-key-pair --kms azurekms://VAULT_NAME.vault.azure.net/keys/KEY_NAME
+```
+
+### Key Rotation
+
+When rotating keys:
+
+1. **Generate new key pair**
+   ```bash
+   cosign generate-key-pair --output-key-prefix cosign-v2
+   ```
+
+2. **Update OtaFlux** with the new public key
+   ```bash
+   otaflux --cosign-pub-key-path /etc/otaflux/cosign-v2.pub ...
+   ```
+
+3. **Re-sign existing images** (if needed)
+   ```bash
+   cosign sign --key cosign-v2.key registry/project/device@sha256:...
+   ```
+
+4. **Securely delete old private key**
+
+> **Note**: OtaFlux currently supports a single public key. For multi-key
+> verification, you would need to rotate keys during a maintenance window.
+
+## Keyless Signing (Experimental)
+
+Cosign supports keyless signing using OIDC identity providers:
+
+```bash
+# Sign with GitHub Actions OIDC
+cosign sign --oidc-issuer https://token.actions.githubusercontent.com \
+    registry.example.com/project/device@sha256:...
+```
+
+> **Note**: OtaFlux currently requires a public key file. Keyless verification
+> is not yet supported.
+
+## Troubleshooting
+
+### Verification
+
+Test signature verification manually:
+
+```bash
+# Verify with cosign CLI
+cosign verify --key cosign.pub \
+    registry.example.com/project/device@sha256:...
+
+# Check signature exists
+cosign tree registry.example.com/project/device:1.0.0
+```
+
+### Common Issues
+
+**1. Signing with tag instead of digest**
+
+```bash
+# WRONG - tag can be moved
+cosign sign --key cosign.key registry/project/device:1.0.0
+
+# CORRECT - digest is immutable
+cosign sign --key cosign.key registry/project/device@sha256:abc123...
+```
+
+**2. Pushing new image without re-signing**
+
+If you push a new image with the same tag, you must re-sign it:
+
+```bash
+oras push registry/project/device:1.0.0 new-firmware.bin:...
+DIGEST=$(oras manifest fetch registry/project/device:1.0.0 --descriptor | jq -r '.digest')
+cosign sign --key cosign.key registry/project/device@${DIGEST}
+```
+
+**3. Public key format**
+
+OtaFlux expects a PEM-formatted public key:
+
+```
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
+-----END PUBLIC KEY-----
 ```
 
 <!-- page links -->

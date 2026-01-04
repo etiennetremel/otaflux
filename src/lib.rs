@@ -7,15 +7,23 @@ pub mod registry;
 use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::api::router::api_router;
 use crate::firmware_manager::FirmwareManager;
 use crate::metrics::router::metrics_router;
 use crate::notifier::{Notifier, TlsConfig};
+
+const DEFAULT_CACHE_SIZE: usize = 100;
+/// Initial backoff delay for MQTT reconnection attempts (in milliseconds).
+const MQTT_INITIAL_BACKOFF_MS: u64 = 100;
+/// Maximum backoff delay for MQTT reconnection attempts (in milliseconds).
+/// Caps the exponential growth to prevent excessively long waits.
+const MQTT_MAX_BACKOFF_MS: u64 = 30_000;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -55,6 +63,8 @@ pub struct Cli {
     pub metrics_listen_addr: String,
     #[clap(long, env, default_value = "info")]
     log_level: LevelFilter,
+    #[clap(long, env, default_value_t = DEFAULT_CACHE_SIZE)]
+    pub cache_size: usize,
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -85,6 +95,7 @@ fn normalize_repository_prefix(val: &str) -> Result<String, String> {
 /// # Panics
 ///
 /// Panics if the Ctrl+C signal handler fails to register.
+#[allow(clippy::too_many_lines)]
 pub async fn run(cli: Cli) -> Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
@@ -107,23 +118,27 @@ pub async fn run(cli: Cli) -> Result<()> {
     });
 
     // Firmware manager initialization
-    let firmware_manager = Arc::new(FirmwareManager::new(
+    let firmware_manager = Arc::new(FirmwareManager::with_cache_size(
         cli.registry_url,
         cli.registry_username,
         cli.registry_password,
         cli.registry_insecure,
         &cli.repository_prefix,
         cli.cosign_pub_key_path,
+        cli.cache_size,
     )?);
 
-    info!("Firmware manager created. Server will fetch firmware on demand per device.");
+    info!(
+        cache_size = cli.cache_size,
+        "Firmware manager created. Server will fetch firmware on demand per device."
+    );
 
-    // Start servers
     let fm = Arc::clone(&firmware_manager);
 
     let main_server_cancel_token = cancel_token.clone();
     let metrics_server_cancel_token = cancel_token.clone();
 
+    // MQTT notifier setup
     let mut notifier: Option<Notifier> = None;
     if let Some(mqtt_url) = cli.mqtt_url {
         // Build TLS config if CA certificate path is provided
@@ -168,10 +183,56 @@ pub async fn run(cli: Cli) -> Result<()> {
         ) {
             Ok((n, mut eventloop)) => {
                 notifier = Some(n);
+                let mqtt_cancel_token = cancel_token.clone();
                 tokio::spawn(async move {
+                    use rumqttc::{Event, Packet};
+                    let mut consecutive_errors: u32 = 0;
                     loop {
-                        if let Err(e) = eventloop.poll().await {
-                            error!("MQTT event loop error: {e:?}");
+                        tokio::select! {
+                            () = mqtt_cancel_token.cancelled() => {
+                                info!("MQTT event loop shutting down");
+                                break;
+                            }
+                            result = eventloop.poll() => {
+                                match result {
+                                    Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                                        if consecutive_errors > 0 {
+                                            info!(
+                                                previous_errors = consecutive_errors,
+                                                "MQTT connection restored"
+                                            );
+                                        }
+                                        consecutive_errors = 0;
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        consecutive_errors = consecutive_errors.saturating_add(1);
+
+                                        if consecutive_errors == 1 {
+                                            error!(error = ?e, "MQTT connection error");
+                                        } else {
+                                            debug!(
+                                                error = ?e,
+                                                consecutive_errors,
+                                                "MQTT still disconnected"
+                                            );
+                                        }
+
+                                        let backoff_ms = MQTT_INITIAL_BACKOFF_MS
+                                            .saturating_mul(2_u64.saturating_pow(consecutive_errors.saturating_sub(1)))
+                                            .min(MQTT_MAX_BACKOFF_MS);
+
+                                        // Use select to allow cancellation during backoff sleep
+                                        tokio::select! {
+                                            () = mqtt_cancel_token.cancelled() => {
+                                                info!("MQTT event loop shutting down during backoff");
+                                                break;
+                                            }
+                                            () = tokio::time::sleep(Duration::from_millis(backoff_ms)) => {}
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 });

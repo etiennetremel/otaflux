@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 tokio-util = "0.7.15"
 parking_lot = "0.12"
+lru = "0.12"
 tokio = { version = "1.45.0", features = ["full"] }
 crc32fast = "1.4.2"
 bytes = "1.10.1"
@@ -43,7 +44,7 @@ clap = { version = "4.5", default-features = false, features = [
   "suggestions",
   "usage",
 ] }
-sigstore = { version = "0.12", features = ["cosign"] }
+sigstore = { version = "0.13", features = ["cosign"] }
 
 [dependencies.reqwest]
 version = "0.12"
