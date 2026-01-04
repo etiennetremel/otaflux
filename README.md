@@ -15,26 +15,24 @@ and size, caches it, and serves it on demand.
 
 ```mermaid
 flowchart LR
-    subgraph Devices
-        DeviceA[ESP32<br>Device A]
-        DeviceB[ESP32<br>Device B]
-        DeviceC[STM32<br>Device C]
+    subgraph devices [" "]
+        A[Device A<br/>ESP32]
+        B[Device B<br/>STM32]
     end
-
-    OtaFlux[OtaFlux]
-    MQTT[MQTT Broker]
-
-    subgraph Registry["OCI Registry"]
-        FirmwareA[firmware-a:v0.1.1]
-        FirmwareB[firmware-b:v1.6.2]
-        FirmwareC[firmware-c:v0.5.4]
+    O[OtaFlux]
+    M[(MQTT)]
+    
+    subgraph registry [" "]
+        R[(OCI Registry)]
     end
-
-    Devices -- "1. Poll / Download" --> OtaFlux
-    OtaFlux -- "2. Pull & cache" --> Registry
-    Registry -. "Webhook on push" .-> OtaFlux
-    OtaFlux -. "Publish notification" .-> MQTT
-    MQTT -. "Notify" .-> Devices
+    devices -- "GET /firmware" --> O
+    O -- "Pull image" --> R
+    R -. "Webhook" .-> O
+    O -. "Publish" .-> M
+    M -. "Notify" .-> devices
+    style O fill:#4a9eff,stroke:#333,color:#fff
+    style R fill:#6db33f,stroke:#333,color:#fff
+    style M fill:#ff9f43,stroke:#333,color:#fff
 ```
 
 ### How It Works
@@ -57,7 +55,7 @@ flowchart LR
 ## Quick Start
 
 ```bash
-podman run -ti --rm \
+docker run -ti --rm \
     -p 8080:8080 \
     -p 9090:9090 \
     ghcr.io/etiennetremel/otaflux \
