@@ -57,6 +57,11 @@ impl Notifier {
         ))
     }
 
+    /// Publishes a payload to the MQTT topic for a specific device.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the MQTT client fails to publish the message.
     #[instrument(skip(self, payload), fields(topic = %format!("{}/{}", self.topic, device_id)))]
     pub async fn publish(&self, device_id: String, payload: Vec<u8>) -> Result<(), anyhow::Error> {
         let topic = format!("{}/{}", self.topic, device_id);
@@ -64,6 +69,6 @@ impl Notifier {
         self.client
             .publish(topic.clone(), QoS::AtLeastOnce, true, payload)
             .await
-            .map_err(|e| anyhow!("Failed to publish message to {:?}: {:?}", topic, e))
+            .map_err(|e| anyhow!("Failed to publish message to {topic:?}: {e:?}"))
     }
 }

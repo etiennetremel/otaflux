@@ -158,11 +158,11 @@ impl FirmwareManager {
         let Some(latest_tag) = latest_tag else {
             warn!("No semver tag for {}", device_id);
             // Return an error to prevent further processing if no valid semver tag found
-            return Err(anyhow!("No semver tag found for {}", device_id));
+            return Err(anyhow!("No semver tag found for {device_id}"));
         };
 
         let latest_version = Version::parse(&latest_tag)
-            .map_err(|e| anyhow!("Couldn't parse version from tag '{}': {}", latest_tag, e))?;
+            .map_err(|e| anyhow!("Couldn't parse version from tag '{latest_tag}': {e}"))?;
 
         Ok((latest_tag, latest_version))
     }

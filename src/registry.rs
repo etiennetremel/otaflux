@@ -96,6 +96,11 @@ impl RegistryClient {
         })
     }
 
+    /// Fetches all available tags for a given repository from the registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the registry request fails or the image path is invalid.
     #[instrument(skip(self), fields(repository = %repository))]
     pub async fn fetch_tags(&self, repository: &str) -> Result<Vec<String>> {
         let image_ref = self.image_path(repository, None)?;
@@ -113,6 +118,10 @@ impl RegistryClient {
     ///
     /// This is a lightweight operation used to check if the cached firmware is still valid
     /// by comparing digests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the manifest cannot be pulled from the registry.
     #[instrument(skip(self), fields(repository = %repository, tag = %tag))]
     pub async fn fetch_manifest_digest(&self, repository: &str, tag: &str) -> Result<String> {
         let image_ref = self.image_path(repository, Some(tag))?;
@@ -120,6 +129,16 @@ impl RegistryClient {
         Ok(digest)
     }
 
+    /// Fetches a firmware blob from the registry for a given repository and tag.
+    ///
+    /// If cosign verification is enabled, validates the artifact signature before returning.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The manifest cannot be pulled
+    /// - Cosign signature verification fails (when enabled)
+    /// - The blob cannot be fetched
     #[instrument(skip(self), fields(repository = %repository, tag = %tag))]
     pub async fn fetch_blob(&self, repository: &str, tag: &str) -> Result<FetchBlobResult> {
         let artifact_image_ref = self.image_path(repository, Some(tag))?;
@@ -199,15 +218,13 @@ impl RegistryClient {
 
         let OciManifest::Image(signature_image_manifest) = manifest else {
             return Err(anyhow!(
-                "Signature manifest for {} is not an image manifest",
-                signature_image_ref
+                "Signature manifest for {signature_image_ref} is not an image manifest"
             ));
         };
 
         let signature_payload_layer = signature_image_manifest.layers.first().ok_or_else(|| {
             anyhow!(
-                "Signature image {} has no layers (expected signature payload)",
-                signature_image_ref
+                "Signature image {signature_image_ref} has no layers (expected signature payload)"
             )
         })?;
 
@@ -217,9 +234,7 @@ impl RegistryClient {
             .and_then(|a| a.get(COSIGN_SIGNATURE_ANNOTATION))
             .ok_or_else(|| {
                 anyhow!(
-                    "No '{}' annotation found in the signature layer for {}",
-                    COSIGN_SIGNATURE_ANNOTATION,
-                    signature_image_ref
+                    "No '{COSIGN_SIGNATURE_ANNOTATION}' annotation found in the signature layer for {signature_image_ref}"
                 )
             })?
             .clone();
@@ -235,8 +250,7 @@ impl RegistryClient {
 
         if signature_payload_bytes.is_empty() {
             return Err(anyhow!(
-                "Signature payload blob for {} is empty",
-                signature_image_ref
+                "Signature payload blob for {signature_image_ref} is empty"
             ));
         }
 
@@ -258,7 +272,7 @@ impl RegistryClient {
                 let first_manifest_descriptor = index
                     .manifests
                     .first()
-                    .ok_or_else(|| anyhow!("Image index for {} is empty", image_ref))?;
+                    .ok_or_else(|| anyhow!("Image index for {image_ref} is empty"))?;
 
                 let platform_specific_image_ref = self.image_path(
                     repository_name_for_error,
@@ -274,8 +288,7 @@ impl RegistryClient {
                     OciManifest::Image(m) => m,
                     OciManifest::ImageIndex(_) => {
                         return Err(anyhow!(
-                            "Resolved manifest for {} (from index) is not an ImageManifest",
-                            platform_specific_image_ref
+                            "Resolved manifest for {platform_specific_image_ref} (from index) is not an ImageManifest"
                         ))
                     }
                 }
@@ -286,7 +299,7 @@ impl RegistryClient {
         let artifact_layer_descriptor = image_manifest
             .layers
             .first()
-            .ok_or_else(|| anyhow!("Image manifest for {} has no layers", image_ref))?;
+            .ok_or_else(|| anyhow!("Image manifest for {image_ref} has no layers"))?;
 
         info!(
             digest = %artifact_layer_descriptor.digest,
@@ -299,7 +312,7 @@ impl RegistryClient {
             .await?;
 
         if blob_data.is_empty() {
-            Err(anyhow!("Fetched artifact blob for {} is empty", image_ref))
+            Err(anyhow!("Fetched artifact blob for {image_ref} is empty"))
         } else {
             Ok(blob_data)
         }

@@ -144,15 +144,15 @@ pub async fn run(cli: Cli) -> Result<()> {
         // Build TLS config if CA certificate path is provided
         let tls_config = if let Some(ca_path) = &cli.mqtt_ca_cert_path {
             let ca_cert = std::fs::read(ca_path)
-                .map_err(|e| anyhow::anyhow!("Failed to read MQTT CA cert: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to read MQTT CA cert: {e}"))?;
 
             // Client auth is optional - only if both cert and key are provided
             let client_auth = match (&cli.mqtt_client_cert_path, &cli.mqtt_client_key_path) {
                 (Some(cert_path), Some(key_path)) => {
                     let client_cert = std::fs::read(cert_path)
-                        .map_err(|e| anyhow::anyhow!("Failed to read MQTT client cert: {}", e))?;
+                        .map_err(|e| anyhow::anyhow!("Failed to read MQTT client cert: {e}"))?;
                     let client_key = std::fs::read(key_path)
-                        .map_err(|e| anyhow::anyhow!("Failed to read MQTT client key: {}", e))?;
+                        .map_err(|e| anyhow::anyhow!("Failed to read MQTT client key: {e}"))?;
                     Some((client_cert, client_key))
                 }
                 (None, None) => None,
