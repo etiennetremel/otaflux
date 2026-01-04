@@ -222,6 +222,7 @@ Returns Prometheus-formatted metrics. Served on the metrics port (default: 9090)
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| `firmware_cache_entries` | Gauge | Current number of cached firmware entries |
 | `firmware_cache_hit_total` | Counter | Cache hits by device |
 | `firmware_cache_miss_total` | Counter | Cache misses by device |
 | `http_requests_total` | Counter | Total HTTP requests |

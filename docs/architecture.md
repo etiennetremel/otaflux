@@ -62,8 +62,18 @@ OtaFlux uses an LRU (Least Recently Used) cache to store firmware binaries in me
 On cache miss, OtaFlux fetches the firmware from the OCI registry and stores it in the cache.
 Subsequent requests for the same device are served from cache until evicted.
 
+### Cache Invalidation
+
+The cache validates entries using both version and manifest digest:
+
+- **Version check**: Compares semver tags to detect new releases
+- **Digest check**: Compares manifest digests to detect rebuilt artifacts with the same version tag
+
+This ensures devices receive the latest binary even when the version number doesn't change.
+
 ## Concurrency
 
 - **Thread-safe cache**: Protected by `parking_lot::Mutex` for fast, non-poisoning locks
 - **Async I/O**: All registry and MQTT operations use Tokio async runtime
 - **Graceful shutdown**: Ctrl+C triggers coordinated shutdown of all servers
+- **Thundering herd protection**: Concurrent requests for the same device trigger only one registry fetch while others wait
