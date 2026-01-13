@@ -3,7 +3,7 @@ experimental = true
 
 [tools]
 rust = { version = "1.92.0", components = "clippy,rustfmt" }
-lefthook = "2.0.13"
+lefthook = "2.0.15"
 
 [hooks]
 postinstall = ["cargo check", "lefthook install"]
