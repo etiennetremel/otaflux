@@ -20,7 +20,7 @@ RUN \
   touch src/main.rs src/lib.rs && \
   cargo build --target x86_64-unknown-linux-musl --release --locked
 
-FROM debian:12-slim AS deps
+FROM debian:13-slim AS deps
 RUN \
   --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
